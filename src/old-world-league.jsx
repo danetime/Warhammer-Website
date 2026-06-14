@@ -304,6 +304,7 @@ function LoginGate({ users, onAuthed, refreshUsers }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
   const [faction, setFaction] = useState("The Empire");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -317,6 +318,7 @@ function LoginGate({ users, onAuthed, refreshUsers }) {
       setErr(mode === "register" ? "Name, email and watchword required, soldier." : "Email and watchword required, soldier.");
       return;
     }
+    if (mode === "register" && pw !== pw2) { setErr("The watchwords do not match."); return; }
     setBusy(true);
     try {
       if (mode === "register") {
@@ -329,13 +331,17 @@ function LoginGate({ users, onAuthed, refreshUsers }) {
         });
         if (error) { setErr(error.message); setBusy(false); return; }
         if (!data.session) { setErr("Check your email to confirm your enlistment, then sign in."); setBusy(false); return; }
+        const prof = await fetchProfile(data.user.id);
+        if (!prof) { setErr("Enlisted, but no muster-roll profile was created. Run supabase/auth.sql, then try again."); setBusy(false); return; }
         await refreshUsers();
-        onAuthed(await fetchProfile(data.user.id));
+        onAuthed(prof);
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({ email: mail, password: pw });
         if (error) { setErr("No such name, or the watchword is wrong."); setBusy(false); return; }
+        const prof = await fetchProfile(data.user.id);
+        if (!prof) { setErr("Signed in, but your profile is missing. The Grand Marshal must run supabase/auth.sql."); setBusy(false); return; }
         await refreshUsers();
-        onAuthed(await fetchProfile(data.user.id));
+        onAuthed(prof);
       }
     } catch (e) {
       setErr("The muster faltered. Try again.");
@@ -366,6 +372,10 @@ function LoginGate({ users, onAuthed, refreshUsers }) {
             <Inp type="email" placeholder="Your email" value={email} onChange={(e) => setEmail(e.target.value)} />
             <Inp type="password" placeholder="Watchword (do NOT reuse a real password)" value={pw}
               onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+            {mode === "register" && (
+              <Inp type="password" placeholder="Confirm watchword" value={pw2}
+                onChange={(e) => setPw2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+            )}
             {mode === "register" && (
               <Sel value={faction} onChange={(e) => setFaction(e.target.value)}>
                 {ARMIES.map(f => <option key={f}>{f}</option>)}

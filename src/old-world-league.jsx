@@ -4,6 +4,7 @@ import {
   Pencil, LogOut, Upload, ThumbsUp, ThumbsDown, X, Shield, Skull, CalendarDays, Save,
   BookOpen, Link as LinkIcon, ChevronRight, Gavel
 } from "lucide-react";
+import { supabase } from "./lib/supabaseClient";
 
 /* ============================================================
    THE OLD WORLD LEAGUE — a private hub for a WHFB 7th ed group
@@ -49,6 +50,26 @@ const hashPw = (s) => {
 };
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+/* ---------- profiles (Supabase) -> the shape the UI expects ----------
+   The DB stores snake_case; the UI expects { name, faction, isAdmin }. */
+const mapProfile = (p) =>
+  p ? { id: p.id, name: p.display_name, faction: p.faction, isAdmin: p.is_admin, joined: p.joined } : null;
+
+async function loadProfiles() {
+  const { data, error } = await supabase
+    .from("profiles").select("*").order("joined", { ascending: true });
+  if (error || !data) return {};
+  const out = {};
+  for (const p of data) out[p.id] = mapProfile(p);
+  return out;
+}
+
+async function fetchProfile(id) {
+  if (!id) return null;
+  const { data } = await supabase.from("profiles").select("*").eq("id", id).maybeSingle();
+  return mapProfile(data);
+}
 
 /* ---------- armies of the Old World + their table colours ---------- */
 const ARMIES = ["The Empire","Bretonnia","Dwarfs","High Elves","Dark Elves","Wood Elves",
@@ -281,6 +302,7 @@ const Modal = ({ title, onClose, children }) => (
 function LoginGate({ users, onAuthed, refreshUsers }) {
   const [mode, setMode] = useState("login");
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [faction, setFaction] = useState("The Empire");
   const [err, setErr] = useState("");
@@ -290,27 +312,33 @@ function LoginGate({ users, onAuthed, refreshUsers }) {
   const submit = async () => {
     setErr("");
     const uname = name.trim();
-    if (!uname || !pw) { setErr("Name and watchword required, soldier."); return; }
+    const mail = email.trim();
+    if (!mail || !pw || (mode === "register" && !uname)) {
+      setErr(mode === "register" ? "Name, email and watchword required, soldier." : "Email and watchword required, soldier.");
+      return;
+    }
     setBusy(true);
-    const fresh = (await sget("wh-users")) || {};
-    const key = uname.toLowerCase();
-    if (mode === "register") {
-      if (fresh[key]) { setErr("That name is already on the muster roll."); setBusy(false); return; }
-      fresh[key] = {
-        name: uname, pw: hashPw(pw), faction,
-        isAdmin: Object.keys(fresh).length === 0,
-        joined: today(),
-      };
-      await sset("wh-users", fresh);
-      refreshUsers(fresh);
-      await sset("wh-session", { u: key }, false);
-      onAuthed(fresh[key]);
-    } else {
-      const rec = fresh[key];
-      if (!rec || rec.pw !== hashPw(pw)) { setErr("No such name, or the watchword is wrong."); setBusy(false); return; }
-      refreshUsers(fresh);
-      await sset("wh-session", { u: key }, false);
-      onAuthed(rec);
+    try {
+      if (mode === "register") {
+        const { data: dupe } = await supabase
+          .from("profiles").select("id").ilike("display_name", uname).limit(1);
+        if (dupe && dupe.length) { setErr("That name is already on the muster roll."); setBusy(false); return; }
+        const { data, error } = await supabase.auth.signUp({
+          email: mail, password: pw,
+          options: { data: { display_name: uname, faction } },
+        });
+        if (error) { setErr(error.message); setBusy(false); return; }
+        if (!data.session) { setErr("Check your email to confirm your enlistment, then sign in."); setBusy(false); return; }
+        await refreshUsers();
+        onAuthed(await fetchProfile(data.user.id));
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({ email: mail, password: pw });
+        if (error) { setErr("No such name, or the watchword is wrong."); setBusy(false); return; }
+        await refreshUsers();
+        onAuthed(await fetchProfile(data.user.id));
+      }
+    } catch (e) {
+      setErr("The muster faltered. Try again.");
     }
     setBusy(false);
   };
@@ -332,7 +360,10 @@ function LoginGate({ users, onAuthed, refreshUsers }) {
             <B small kind={mode === "register" ? "primary" : "ghost"} onClick={() => setMode("register")}>Enlist</B>
           </div>
           <div className="space-y-3">
-            <Inp placeholder="Your name (e.g. Danetime)" value={name} onChange={(e) => setName(e.target.value)} />
+            {mode === "register" && (
+              <Inp placeholder="Your name (e.g. Danetime)" value={name} onChange={(e) => setName(e.target.value)} />
+            )}
+            <Inp type="email" placeholder="Your email" value={email} onChange={(e) => setEmail(e.target.value)} />
             <Inp type="password" placeholder="Watchword (do NOT reuse a real password)" value={pw}
               onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
             {mode === "register" && (
@@ -373,22 +404,35 @@ export default function App() {
   const [champions, setChampions] = useState([]);
   const [photosIdx, setPhotosIdx] = useState([]);
 
+  const refreshUsers = async () => {
+    const us = await loadProfiles();
+    setUsers(us);
+    return us;
+  };
+
   useEffect(() => {
     (async () => {
-      const [u, sess, fx, rp, qt, fq, rl, pg, px, pr, ch] = await Promise.all([
-        sget("wh-users"), sget("wh-session", false), sget("wh-fixtures"),
-        sget("wh-reports"), sget("wh-quotes"), sget("wh-faq"),
+      const { data: { session } } = await supabase.auth.getSession();
+      await refreshUsers();
+      if (session?.user) setUser(await fetchProfile(session.user.id));
+      // The rest still loads via window.storage until Step 4 swaps it for Supabase.
+      const [fx, rp, qt, fq, rl, pg, px, pr, ch] = await Promise.all([
+        sget("wh-fixtures"), sget("wh-reports"), sget("wh-quotes"), sget("wh-faq"),
         sget("wh-rules"), sget("wh-pages"), sget("wh-photos-idx"), sget("wh-proposals"),
         sget("wh-champions"),
       ]);
-      const allUsers = u || {};
-      setUsers(allUsers);
       setFixtures(fx || []); setReports(rp || []); setQuotes(qt || []);
       setFaq(fq || []); setRules(rl || []); setPages(pg || []); setPhotosIdx(px || []);
       setProposals(pr || []); setChampions(ch || []);
-      if (sess && sess.u && allUsers[sess.u]) setUser(allUsers[sess.u]);
       setBooted(true);
     })();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setTimeout(async () => {
+        setUser(session?.user ? await fetchProfile(session.user.id) : null);
+      }, 0);
+    });
+    return () => subscription.unsubscribe();
   }, []);
 
   const save = {
@@ -401,10 +445,9 @@ export default function App() {
     proposals: async (v) => { setProposals(v); await sset("wh-proposals", v); },
     champions: async (v) => { setChampions(v); await sset("wh-champions", v); },
     photosIdx: async (v) => { setPhotosIdx(v); await sset("wh-photos-idx", v); },
-    users: async (v) => { setUsers(v); await sset("wh-users", v); },
   };
 
-  const logout = async () => { await sdel("wh-session", false); setUser(null); };
+  const logout = async () => { await supabase.auth.signOut(); setUser(null); };
 
   if (!booted) {
     return (
@@ -413,10 +456,10 @@ export default function App() {
       </div>
     );
   }
-  if (!user) return <LoginGate users={users} onAuthed={setUser} refreshUsers={setUsers} />;
+  if (!user) return <LoginGate users={users} onAuthed={setUser} refreshUsers={refreshUsers} />;
 
   const memberNames = Object.values(users).map((u) => u.name);
-  const ctx = { user, users, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, save };
+  const ctx = { user, users, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, save, refreshUsers };
 
   const tabs = [
     { id: "home", label: "Town Square", icon: Beer },
@@ -485,7 +528,7 @@ export default function App() {
    HOME — Town Square
    ============================================================ */
 function HomeTab({ ctx, go }) {
-  const { user, users, fixtures, reports, quotes, champions, photosIdx, save } = ctx;
+  const { user, users, fixtures, reports, quotes, champions, photosIdx, save, refreshUsers } = ctx;
   const [newQuote, setNewQuote] = useState("");
   const [saidBy, setSaidBy] = useState("");
   const [thumbs, setThumbs] = useState({});
@@ -526,9 +569,11 @@ function HomeTab({ ctx, go }) {
     if (!(user.isAdmin || q.addedBy === user.name)) return;
     await save.quotes(quotes.filter((x) => x.id !== q.id));
   };
-  const toggleAdmin = async (key) => {
-    const next = { ...users, [key]: { ...users[key], isAdmin: !users[key].isAdmin } };
-    await save.users(next);
+  const toggleAdmin = async (id) => {
+    const target = users[id];
+    if (!target) return;
+    await supabase.from("profiles").update({ is_admin: !target.isAdmin }).eq("id", id);
+    await refreshUsers();
   };
 
   const awardChampion = async () => {

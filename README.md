@@ -45,9 +45,10 @@ This follows the staged build brief:
 
 - [x] **Step 1 — Scaffold:** Vite + React + Tailwind, prototype rendering, shared
   Supabase client module, `.env` wiring.
-- [ ] **Step 2 — Supabase schema:** tables and storage buckets — SQL ready in
-  `supabase/schema.sql` (run it in the Supabase SQL Editor).
-- [ ] **Step 3 — Auth:** real Supabase email + password (login UI unchanged).
+- [x] **Step 2 — Supabase schema:** tables and storage buckets
+  (`supabase/schema.sql`).
+- [ ] **Step 3 — Auth:** real Supabase email + password (login design
+  unchanged) — run `supabase/auth.sql` and disable email confirmation.
 - [ ] **Step 4 — Storage layer:** replace `sget`/`sset`/`sdel` with Supabase.
 - [ ] **Step 5 — Security:** Row Level Security on every table.
 - [ ] **Step 6 — Local test checklist.**
@@ -65,6 +66,7 @@ src/
     supabaseClient.js    Single shared Supabase client
 supabase/
   schema.sql             Step 2 tables + storage buckets (run in SQL Editor)
+  auth.sql               Step 3 profile trigger + first-user-admin (SQL Editor)
 tailwind.config.js
 postcss.config.js
 vite.config.js

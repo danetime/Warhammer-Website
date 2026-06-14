@@ -48,7 +48,8 @@ This follows the staged build brief:
 - [x] **Step 2 — Supabase schema:** tables and storage buckets
   (`supabase/schema.sql`).
 - [ ] **Step 3 — Auth:** real Supabase email + password (login design
-  unchanged) — run `supabase/auth.sql` and disable email confirmation.
+  unchanged). The app creates the profile on sign-up; first member becomes
+  admin. Requires email confirmation disabled. `supabase/auth.sql` is optional.
 - [ ] **Step 4 — Storage layer:** replace `sget`/`sset`/`sdel` with Supabase.
 - [ ] **Step 5 — Security:** Row Level Security on every table.
 - [ ] **Step 6 — Local test checklist.**

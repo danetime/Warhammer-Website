@@ -1,7 +1,10 @@
 -- ============================================================================
 -- The Old World League — Auth trigger (Step 3)
 -- ============================================================================
--- Run this in the Supabase SQL Editor AFTER schema.sql.
+-- OPTIONAL: the app now creates the profile itself on sign-up (a client-side
+-- upsert), so this trigger is NOT required. It is kept as a belt-and-braces
+-- server-side fallback and coexists safely with the app's upsert. If you run
+-- it, do so in the Supabase SQL Editor after schema.sql.
 --
 -- When a new user signs up (auth.users insert), this creates their public
 -- profile from the sign-up metadata (display_name + faction). The FIRST member

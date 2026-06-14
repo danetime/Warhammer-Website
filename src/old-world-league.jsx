@@ -71,6 +71,27 @@ async function fetchProfile(id) {
   return mapProfile(data);
 }
 
+/* Ensure a profile row exists for an authed user. Works whether or not the
+   optional DB trigger is installed (upsert ignores an existing row). The first
+   member to receive a profile becomes admin (Grand Marshal). On a returning
+   user with no profile, the name/faction are recovered from their sign-up
+   metadata. is_admin is locked down properly with RLS in Step 5. */
+async function ensureProfile(authUser, meta) {
+  if (!authUser) return null;
+  const existing = await fetchProfile(authUser.id);
+  if (existing) return existing;
+  const md = authUser.user_metadata || {};
+  const display_name = (meta && meta.display_name) || md.display_name || (authUser.email ? authUser.email.split("@")[0] : "Soldier");
+  const faction = (meta && meta.faction) || md.faction || "The Empire";
+  const { count } = await supabase.from("profiles").select("id", { count: "exact", head: true });
+  const isFirst = (count ?? 0) === 0;
+  await supabase.from("profiles").upsert(
+    { id: authUser.id, display_name, faction, is_admin: isFirst },
+    { onConflict: "id", ignoreDuplicates: true }
+  );
+  return await fetchProfile(authUser.id);
+}
+
 /* ---------- armies of the Old World + their table colours ---------- */
 const ARMIES = ["The Empire","Bretonnia","Dwarfs","High Elves","Dark Elves","Wood Elves",
   "Orcs & Goblins","Skaven","Vampire Counts","Tomb Kings","Warriors of Chaos","Daemons of Chaos",
@@ -331,15 +352,15 @@ function LoginGate({ users, onAuthed, refreshUsers }) {
         });
         if (error) { setErr(error.message); setBusy(false); return; }
         if (!data.session) { setErr("Check your email to confirm your enlistment, then sign in."); setBusy(false); return; }
-        const prof = await fetchProfile(data.user.id);
-        if (!prof) { setErr("Enlisted, but no muster-roll profile was created. Run supabase/auth.sql, then try again."); setBusy(false); return; }
+        const prof = await ensureProfile(data.user, { display_name: uname, faction });
+        if (!prof) { setErr("Enlisted, but your muster-roll profile could not be created."); setBusy(false); return; }
         await refreshUsers();
         onAuthed(prof);
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({ email: mail, password: pw });
         if (error) { setErr("No such name, or the watchword is wrong."); setBusy(false); return; }
-        const prof = await fetchProfile(data.user.id);
-        if (!prof) { setErr("Signed in, but your profile is missing. The Grand Marshal must run supabase/auth.sql."); setBusy(false); return; }
+        const prof = await ensureProfile(data.user, null);
+        if (!prof) { setErr("Signed in, but your profile could not be created."); setBusy(false); return; }
         await refreshUsers();
         onAuthed(prof);
       }
@@ -424,7 +445,7 @@ export default function App() {
     (async () => {
       const { data: { session } } = await supabase.auth.getSession();
       await refreshUsers();
-      if (session?.user) setUser(await fetchProfile(session.user.id));
+      if (session?.user) setUser(await ensureProfile(session.user, null));
       // The rest still loads via window.storage until Step 4 swaps it for Supabase.
       const [fx, rp, qt, fq, rl, pg, px, pr, ch] = await Promise.all([
         sget("wh-fixtures"), sget("wh-reports"), sget("wh-quotes"), sget("wh-faq"),
@@ -439,7 +460,7 @@ export default function App() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setTimeout(async () => {
-        setUser(session?.user ? await fetchProfile(session.user.id) : null);
+        setUser(session?.user ? await ensureProfile(session.user, null) : null);
       }, 0);
     });
     return () => subscription.unsubscribe();

@@ -45,7 +45,8 @@ This follows the staged build brief:
 
 - [x] **Step 1 — Scaffold:** Vite + React + Tailwind, prototype rendering, shared
   Supabase client module, `.env` wiring.
-- [ ] **Step 2 — Supabase schema:** tables and storage buckets.
+- [ ] **Step 2 — Supabase schema:** tables and storage buckets — SQL ready in
+  `supabase/schema.sql` (run it in the Supabase SQL Editor).
 - [ ] **Step 3 — Auth:** real Supabase email + password (login UI unchanged).
 - [ ] **Step 4 — Storage layer:** replace `sget`/`sset`/`sdel` with Supabase.
 - [ ] **Step 5 — Security:** Row Level Security on every table.
@@ -62,6 +63,8 @@ src/
   old-world-league.jsx   The app (source of truth for UI + feature logic)
   lib/
     supabaseClient.js    Single shared Supabase client
+supabase/
+  schema.sql             Step 2 tables + storage buckets (run in SQL Editor)
 tailwind.config.js
 postcss.config.js
 vite.config.js

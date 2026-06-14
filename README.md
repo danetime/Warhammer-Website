@@ -47,11 +47,13 @@ This follows the staged build brief:
   Supabase client module, `.env` wiring.
 - [x] **Step 2 — Supabase schema:** tables and storage buckets
   (`supabase/schema.sql`).
-- [ ] **Step 3 — Auth:** real Supabase email + password (login design
+- [x] **Step 3 — Auth:** real Supabase email + password (login design
   unchanged). The app creates the profile on sign-up; first member becomes
   admin. Requires email confirmation disabled. `supabase/auth.sql` is optional.
-- [ ] **Step 4 — Storage layer:** replace `sget`/`sset`/`sdel` with Supabase.
-- [ ] **Step 5 — Security:** Row Level Security on every table.
+- [x] **Step 4 — Storage layer:** all data + photos moved to Supabase via
+  `src/lib/db.js` (snake_case ↔ UI shapes); photos upload to Storage.
+- [ ] **Step 5 — Security:** re-enable Row Level Security (currently off for
+  dev via `supabase/disable-rls-dev.sql`) with proper policies on every table.
 - [ ] **Step 6 — Local test checklist.**
 - [ ] **Step 7 — Deploy** (only when explicitly approved).
 
@@ -65,6 +67,7 @@ src/
   old-world-league.jsx   The app (source of truth for UI + feature logic)
   lib/
     supabaseClient.js    Single shared Supabase client
+    db.js                Data layer: load/CRUD + DB<->UI mapping, photo storage
 supabase/
   schema.sql             Step 2 tables + storage buckets (run in SQL Editor)
   auth.sql               Step 3 profile trigger + first-user-admin (SQL Editor)

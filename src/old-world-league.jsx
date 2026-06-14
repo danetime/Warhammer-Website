@@ -5,10 +5,11 @@ import {
   BookOpen, Link as LinkIcon, ChevronRight, Gavel
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
+import { db, photoUrl } from "./lib/db";
 
 /* ============================================================
    THE OLD WORLD LEAGUE — a private hub for a WHFB 7th ed group
-   Shared data lives in window.storage (shared scope).
+   Auth + data live in Supabase (see lib/supabaseClient.js, lib/db.js).
    ============================================================ */
 
 const FONT_CSS = `
@@ -25,29 +26,8 @@ const FONT_CSS = `
 input:focus, textarea:focus, select:focus, button:focus-visible { outline: 2px solid #b45309; outline-offset: 1px; }
 `;
 
-/* ---------- storage helpers (window.storage, shared scope) ---------- */
-const sget = async (key, shared = true) => {
-  try {
-    const r = await window.storage.get(key, shared);
-    return r && r.value ? JSON.parse(r.value) : null;
-  } catch (e) { return null; }
-};
-const sset = async (key, val, shared = true) => {
-  try { await window.storage.set(key, JSON.stringify(val), shared); return true; }
-  catch (e) { console.error("storage set failed", key, e); return false; }
-};
-const sdel = async (key, shared = true) => {
-  try { await window.storage.delete(key, shared); } catch (e) {}
-};
-
+/* ---------- id generator for nested JSONB rows (page rows, charter FAQs) ---------- */
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-
-/* Not real security. Keeps casual snooping out, nothing more. */
-const hashPw = (s) => {
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-  return "h" + (h >>> 0).toString(36);
-};
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -446,15 +426,14 @@ export default function App() {
       const { data: { session } } = await supabase.auth.getSession();
       await refreshUsers();
       if (session?.user) setUser(await ensureProfile(session.user, null));
-      // The rest still loads via window.storage until Step 4 swaps it for Supabase.
       const [fx, rp, qt, fq, rl, pg, px, pr, ch] = await Promise.all([
-        sget("wh-fixtures"), sget("wh-reports"), sget("wh-quotes"), sget("wh-faq"),
-        sget("wh-rules"), sget("wh-pages"), sget("wh-photos-idx"), sget("wh-proposals"),
-        sget("wh-champions"),
+        db.fixtures.list(), db.reports.list(), db.quotes.list(), db.faqs.list(),
+        db.rules.list(), db.pages.list(), db.photos.list(), db.proposals.list(),
+        db.champions.list(),
       ]);
-      setFixtures(fx || []); setReports(rp || []); setQuotes(qt || []);
-      setFaq(fq || []); setRules(rl || []); setPages(pg || []); setPhotosIdx(px || []);
-      setProposals(pr || []); setChampions(ch || []);
+      setFixtures(fx); setReports(rp); setQuotes(qt);
+      setFaq(fq); setRules(rl); setPages(pg); setPhotosIdx(px);
+      setProposals(pr); setChampions(ch);
       setBooted(true);
     })();
 
@@ -466,16 +445,16 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  const save = {
-    fixtures: async (v) => { setFixtures(v); await sset("wh-fixtures", v); },
-    reports: async (v) => { setReports(v); await sset("wh-reports", v); },
-    quotes: async (v) => { setQuotes(v); await sset("wh-quotes", v); },
-    faq: async (v) => { setFaq(v); await sset("wh-faq", v); },
-    rules: async (v) => { setRules(v); await sset("wh-rules", v); },
-    pages: async (v) => { setPages(v); await sset("wh-pages", v); },
-    proposals: async (v) => { setProposals(v); await sset("wh-proposals", v); },
-    champions: async (v) => { setChampions(v); await sset("wh-champions", v); },
-    photosIdx: async (v) => { setPhotosIdx(v); await sset("wh-photos-idx", v); },
+  const reload = {
+    fixtures: async () => setFixtures(await db.fixtures.list()),
+    reports: async () => setReports(await db.reports.list()),
+    quotes: async () => setQuotes(await db.quotes.list()),
+    faq: async () => setFaq(await db.faqs.list()),
+    rules: async () => setRules(await db.rules.list()),
+    pages: async () => setPages(await db.pages.list()),
+    proposals: async () => setProposals(await db.proposals.list()),
+    champions: async () => setChampions(await db.champions.list()),
+    photosIdx: async () => setPhotosIdx(await db.photos.list()),
   };
 
   const logout = async () => { await supabase.auth.signOut(); setUser(null); };
@@ -490,7 +469,7 @@ export default function App() {
   if (!user) return <LoginGate users={users} onAuthed={setUser} refreshUsers={refreshUsers} />;
 
   const memberNames = Object.values(users).map((u) => u.name);
-  const ctx = { user, users, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, save, refreshUsers };
+  const ctx = { user, users, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, db, reload, refreshUsers };
 
   const tabs = [
     { id: "home", label: "Town Square", icon: Beer },
@@ -559,7 +538,7 @@ export default function App() {
    HOME — Town Square
    ============================================================ */
 function HomeTab({ ctx, go }) {
-  const { user, users, fixtures, reports, quotes, champions, photosIdx, save, refreshUsers } = ctx;
+  const { user, users, fixtures, reports, quotes, champions, photosIdx, db, reload, refreshUsers } = ctx;
   const [newQuote, setNewQuote] = useState("");
   const [saidBy, setSaidBy] = useState("");
   const [thumbs, setThumbs] = useState({});
@@ -580,25 +559,22 @@ function HomeTab({ ctx, go }) {
   const recentQuotes = [...quotes].sort((a, b) => b.created - a.created).slice(0, 4);
 
   useEffect(() => {
-    (async () => {
-      const out = {};
-      for (const p of recentPhotos) {
-        const d = await sget("wh-photo-" + p.id);
-        if (d) out[p.id] = d.data;
-      }
-      setThumbs(out);
-    })();
+    const out = {};
+    for (const p of recentPhotos) out[p.id] = photoUrl(p.storagePath);
+    setThumbs(out);
   }, [photosIdx.length]);
 
   const addQuote = async () => {
     const text = newQuote.trim();
     if (!text) return;
-    await save.quotes([{ id: uid(), text, saidBy: saidBy.trim() || "Unknown", addedBy: user.name, created: Date.now() }, ...quotes]);
+    await db.quotes.add({ text, saidBy: saidBy.trim() || "Unknown", addedBy: user.name });
+    await reload.quotes();
     setNewQuote(""); setSaidBy("");
   };
   const delQuote = async (q) => {
     if (!(user.isAdmin || q.addedBy === user.name)) return;
-    await save.quotes(quotes.filter((x) => x.id !== q.id));
+    await db.quotes.remove(q.id);
+    await reload.quotes();
   };
   const toggleAdmin = async (id) => {
     const target = users[id];
@@ -609,16 +585,15 @@ function HomeTab({ ctx, go }) {
 
   const awardChampion = async () => {
     if (!awardWho.trim() || !awardSeason.trim()) return;
-    const retired = champions.map((c) => (c.isCurrent ? { ...c, isCurrent: false } : c));
-    await save.champions([
-      { id: uid(), member: awardWho.trim(), season: awardSeason.trim(), awardedAt: Date.now(), isCurrent: true },
-      ...retired,
-    ]);
+    await db.champions.retireAll();
+    await db.champions.add({ member: awardWho.trim(), season: awardSeason.trim() });
+    await reload.champions();
     setAwardWho(""); setAwardSeason(""); setShowAward(false);
   };
   const abdicate = async () => {
     if (!confirm("Strip the current champion of the crown? They keep their place in the Roll of Honour.")) return;
-    await save.champions(champions.map((c) => (c.isCurrent ? { ...c, isCurrent: false } : c)));
+    await db.champions.retireAll();
+    await reload.champions();
   };
 
   const medal = (i) => ["bg-amber-500 text-stone-900", "bg-stone-400 text-stone-900", "bg-amber-800 text-amber-100"][i] || "bg-stone-200 text-stone-600";
@@ -822,7 +797,7 @@ function HomeTab({ ctx, go }) {
    LEAGUE / CUP PAGES — admin-managed tables and brackets
    ============================================================ */
 function PagesTab({ ctx, kind }) {
-  const { user, pages, save } = ctx;
+  const { user, pages, db, reload } = ctx;
   const mine = pages.filter((p) => p.kind === kind);
   const [editingId, setEditingId] = useState(null);
   const [showNew, setShowNew] = useState(false);
@@ -851,11 +826,12 @@ function PagesTab({ ctx, kind }) {
     const t = newTitle.trim();
     if (!t) return;
     const rows = kind === "cup" && tpl !== "blank" ? cupTemplate(parseInt(tpl, 10)) : [blankRow()];
-    await save.pages([...pages, { id: uid(), kind, title: t, rows, created: Date.now() }]);
+    await db.pages.add({ kind, title: t, rows, info: {} });
+    await reload.pages();
     setNewTitle(""); setTpl("blank"); setShowNew(false);
   };
-  const updatePage = async (pg) => { await save.pages(pages.map((p) => (p.id === pg.id ? pg : p))); };
-  const deletePage = async (id) => { await save.pages(pages.filter((p) => p.id !== id)); setEditingId(null); };
+  const updatePage = async (pg) => { await db.pages.update(pg.id, { title: pg.title, rows: pg.rows, info: pg.info || {} }); await reload.pages(); };
+  const deletePage = async (id) => { await db.pages.remove(id); await reload.pages(); setEditingId(null); };
 
   return (
     <div>
@@ -1066,7 +1042,7 @@ function PageBlock({ pg, kind, isAdmin, editing, onEdit, onDone, onChange, onDel
    BATTLES — fixtures (admin) + battle reports (anyone)
    ============================================================ */
 function BattlesTab({ ctx }) {
-  const { user, memberNames, fixtures, reports, save } = ctx;
+  const { user, memberNames, fixtures, reports, db, reload } = ctx;
   const [showFx, setShowFx] = useState(false);
   const [showRp, setShowRp] = useState(false);
   const [fx, setFx] = useState({ playerA: "", playerB: "", date: today(), points: "1500", notes: "" });
@@ -1078,22 +1054,25 @@ function BattlesTab({ ctx }) {
 
   const addFixture = async () => {
     if (!fx.playerA.trim() || !fx.playerB.trim()) return;
-    await save.fixtures([...fixtures, { ...fx, id: uid(), created: Date.now() }]);
+    await db.fixtures.add(fx);
+    await reload.fixtures();
     setFx({ playerA: "", playerB: "", date: today(), points: "1500", notes: "" });
     setShowFx(false);
   };
-  const delFixture = async (id) => { await save.fixtures(fixtures.filter((f) => f.id !== id)); };
+  const delFixture = async (id) => { await db.fixtures.remove(id); await reload.fixtures(); };
 
   const addReport = async () => {
     if (!rp.playerA.trim() || !rp.playerB.trim()) return;
-    await save.reports([{ ...rp, id: uid(), filedBy: user.name, created: Date.now() }, ...reports]);
+    await db.reports.add({ ...rp, filedBy: user.name });
+    await reload.reports();
     setRp(blankReport());
     setShowRp(false);
   };
   const delReport = async (r) => {
     if (!(user.isAdmin || r.filedBy === user.name)) return;
     if (!confirm("Strike this battle from the record? It affects the ladder.")) return;
-    await save.reports(reports.filter((x) => x.id !== r.id));
+    await db.reports.remove(r.id);
+    await reload.reports();
   };
 
   const setShame = (i, field, val) => {
@@ -1264,7 +1243,7 @@ function BattlesTab({ ctx }) {
    GALLERY — match photos + painting gallery with votes
    ============================================================ */
 function GalleryTab({ ctx }) {
-  const { user, photosIdx, save } = ctx;
+  const { user, photosIdx, db, reload } = ctx;
   const [view, setView] = useState("match");
   const [images, setImages] = useState({});
   const [caption, setCaption] = useState("");
@@ -1276,15 +1255,9 @@ function GalleryTab({ ctx }) {
   const shown = [...photosIdx].filter((p) => p.kind === view).sort((a, b) => b.created - a.created);
 
   useEffect(() => {
-    let alive = true;
-    (async () => {
-      for (const p of shown) {
-        if (images[p.id]) continue;
-        const d = await sget("wh-photo-" + p.id);
-        if (d && alive) setImages((prev) => ({ ...prev, [p.id]: d.data }));
-      }
-    })();
-    return () => { alive = false; };
+    const next = {};
+    for (const p of shown) next[p.id] = photoUrl(p.storagePath);
+    setImages(next);
   }, [view, photosIdx.length]);
 
   const upload = async (file) => {
@@ -1293,12 +1266,9 @@ function GalleryTab({ ctx }) {
     try {
       const data = await compressImage(file);
       if (data.length > 1800000) { setErr("That image is enormous even after squashing. Try a smaller one."); setBusy(false); return; }
-      const id = uid();
-      const ok = await sset("wh-photo-" + id, { data });
-      if (!ok) { setErr("Upload failed. The vaults may be full."); setBusy(false); return; }
-      const entry = { id, caption: caption.trim(), uploader: user.name, kind: view, votes: [], created: Date.now() };
-      await save.photosIdx([entry, ...photosIdx]);
-      setImages((prev) => ({ ...prev, [id]: data }));
+      const res = await db.photos.add({ dataURL: data, caption: caption.trim(), uploader: user.name, kind: view });
+      if (res.error) { setErr("Upload failed. " + (res.error.message || "The vaults may be full.")); setBusy(false); return; }
+      await reload.photosIdx();
       setCaption("");
     } catch (e) {
       setErr("Could not read that file. Is it actually an image?");
@@ -1310,14 +1280,15 @@ function GalleryTab({ ctx }) {
   const delPhoto = async (p) => {
     if (!(user.isAdmin || p.uploader === user.name)) return;
     if (!confirm("Burn this photograph for everyone?")) return;
-    await sdel("wh-photo-" + p.id);
-    await save.photosIdx(photosIdx.filter((x) => x.id !== p.id));
+    await db.photos.remove(p);
+    await reload.photosIdx();
   };
 
   const toggleVote = async (p) => {
     const votes = p.votes || [];
     const next = votes.includes(user.name) ? votes.filter((v) => v !== user.name) : [...votes, user.name];
-    await save.photosIdx(photosIdx.map((x) => (x.id === p.id ? { ...x, votes: next } : x)));
+    await db.photos.setVotes(p.id, next);
+    await reload.photosIdx();
   };
 
   const paintings = photosIdx.filter((p) => p.kind === "painting");
@@ -1410,21 +1381,23 @@ function GalleryTab({ ctx }) {
    LIBRARY — rules, rulings and links (PDFs live on Drive)
    ============================================================ */
 function RulesTab({ ctx }) {
-  const { user, rules, save } = ctx;
+  const { user, rules, db, reload } = ctx;
   const [show, setShow] = useState(false);
   const [draft, setDraft] = useState({ title: "", body: "", link: "" });
   const [open, setOpen] = useState(null);
 
   const add = async () => {
     if (!draft.title.trim()) return;
-    await save.rules([{ ...draft, id: uid(), addedBy: user.name, created: Date.now() }, ...rules]);
+    await db.rules.add({ title: draft.title, body: draft.body, link: draft.link });
+    await reload.rules();
     setDraft({ title: "", body: "", link: "" });
     setShow(false);
   };
   const del = async (r) => {
     if (!user.isAdmin) return;
     if (!confirm("Remove \u201C" + r.title + "\u201D from the library?")) return;
-    await save.rules(rules.filter((x) => x.id !== r.id));
+    await db.rules.remove(r.id);
+    await reload.rules();
   };
 
   return (
@@ -1486,20 +1459,22 @@ function RulesTab({ ctx }) {
    HERALD — FAQ
    ============================================================ */
 function FaqTab({ ctx }) {
-  const { user, faq, save } = ctx;
+  const { user, faq, db, reload } = ctx;
   const [show, setShow] = useState(false);
   const [draft, setDraft] = useState({ q: "", a: "" });
   const [open, setOpen] = useState(null);
 
   const add = async () => {
     if (!draft.q.trim()) return;
-    await save.faq([...faq, { ...draft, id: uid(), created: Date.now() }]);
+    await db.faqs.add({ q: draft.q, a: draft.a });
+    await reload.faq();
     setDraft({ q: "", a: "" });
     setShow(false);
   };
   const del = async (f) => {
     if (!user.isAdmin) return;
-    await save.faq(faq.filter((x) => x.id !== f.id));
+    await db.faqs.remove(f.id);
+    await reload.faq();
   };
 
   return (
@@ -1547,7 +1522,7 @@ function FaqTab({ ctx }) {
    THE COUNCIL — house rule proposals, votes, and the gavel
    ============================================================ */
 function CouncilTab({ ctx }) {
-  const { user, users, proposals, save } = ctx;
+  const { user, users, proposals, db, reload } = ctx;
   const [show, setShow] = useState(false);
   const [draft, setDraft] = useState({ title: "", detail: "" });
   const memberCount = Object.keys(users).length;
@@ -1558,10 +1533,8 @@ function CouncilTab({ ctx }) {
 
   const propose = async () => {
     if (!draft.title.trim()) return;
-    await save.proposals([
-      { id: uid(), title: draft.title.trim(), detail: draft.detail.trim(), proposedBy: user.name, created: Date.now(), votes: {}, status: "open" },
-      ...proposals,
-    ]);
+    await db.proposals.add({ title: draft.title.trim(), detail: draft.detail.trim(), proposedBy: user.name });
+    await reload.proposals();
     setDraft({ title: "", detail: "" });
     setShow(false);
   };
@@ -1570,23 +1543,27 @@ function CouncilTab({ ctx }) {
     const votes = { ...(p.votes || {}) };
     if (votes[user.name] === dir) delete votes[user.name];
     else votes[user.name] = dir;
-    await save.proposals(proposals.map((x) => (x.id === p.id ? { ...x, votes } : x)));
+    await db.proposals.setVotes(p.id, votes);
+    await reload.proposals();
   };
 
   const seal = async (p) => {
     if (!user.isAdmin) return;
     if (!confirm("Bring down the gavel and seal \u201C" + p.title + "\u201D into law?")) return;
-    await save.proposals(proposals.map((x) => (x.id === p.id ? { ...x, status: "sealed", sealedAt: Date.now(), sealedBy: user.name } : x)));
+    await db.proposals.seal(p.id, user.name);
+    await reload.proposals();
   };
   const strike = async (p) => {
     if (!user.isAdmin) return;
     if (!confirm("Strike down \u201C" + p.title + "\u201D?")) return;
-    await save.proposals(proposals.map((x) => (x.id === p.id ? { ...x, status: "struck", struckAt: Date.now() } : x)));
+    await db.proposals.strike(p.id);
+    await reload.proposals();
   };
   const remove = async (p) => {
     if (!(user.isAdmin || (p.proposedBy === user.name && p.status === "open"))) return;
     if (!confirm("Remove this motion entirely?")) return;
-    await save.proposals(proposals.filter((x) => x.id !== p.id));
+    await db.proposals.remove(p.id);
+    await reload.proposals();
   };
 
   const tally = (p) => {

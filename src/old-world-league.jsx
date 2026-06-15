@@ -6,7 +6,7 @@ import {
   BookOpen, Link as LinkIcon, ChevronRight, Gavel, Award, Medal, Star, Utensils, ArrowLeft
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
-import { db, photoUrl } from "./lib/db";
+import { db, photoUrl, emblemUrl } from "./lib/db";
 
 /* ============================================================
    THE OLD WORLD LEAGUE — a private hub for a WHFB 7th ed group
@@ -96,6 +96,23 @@ const ARMY_STYLE = {
   "Dogs of War": "border-indigo-600 bg-indigo-50",
 };
 const armyStyle = (a) => ARMY_STYLE[a] || "border-stone-300 bg-transparent";
+
+/* default emblem emoji per army (admins can upload custom art to override) */
+const ARMY_EMOJI = {
+  "The Empire": "🛡️", "Bretonnia": "🐎", "Dwarfs": "🏰", "High Elves": "☀️",
+  "Dark Elves": "🗡️", "Wood Elves": "🌳", "Orcs & Goblins": "👹", "Skaven": "🐀",
+  "Vampire Counts": "🧛", "Tomb Kings": "💀", "Warriors of Chaos": "😈",
+  "Daemons of Chaos": "👿", "Beastmen": "🐐", "Lizardmen": "🦎",
+  "Ogre Kingdoms": "🍖", "Chaos Dwarfs": "🌋", "Dogs of War": "💰",
+};
+function ArmyEmblem({ army, emblems, size = 16 }) {
+  if (!army) return null;
+  const e = (emblems || []).find((x) => x.army === army);
+  if (e) return <img src={emblemUrl(e.path)} alt="" style={{ width: size, height: size }} className="inline-block shrink-0 rounded-sm object-cover" />;
+  const em = ARMY_EMOJI[army];
+  if (em) return <span className="leading-none" style={{ fontSize: size - 1 }}>{em}</span>;
+  return null;
+}
 
 /* ---------- rank ladders: games played -> army-themed title ----------
    Tier thresholds are shared across all armies so progression is fair. */
@@ -459,6 +476,7 @@ export default function App() {
   const [photosIdx, setPhotosIdx] = useState([]);
   const [honours, setHonours] = useState([]);
   const [availability, setAvailability] = useState([]);
+  const [emblems, setEmblems] = useState([]);
 
   const refreshUsers = async () => {
     const us = await loadProfiles();
@@ -479,6 +497,7 @@ export default function App() {
       setFixtures(fx); setReports(rp); setQuotes(qt);
       setFaq(fq); setRules(rl); setPages(pg); setPhotosIdx(px);
       setProposals(pr); setChampions(ch); setHonours(hn); setAvailability(av);
+      setEmblems(await db.emblems.list());
       setBooted(true);
     })();
 
@@ -502,6 +521,7 @@ export default function App() {
     photosIdx: async () => setPhotosIdx(await db.photos.list()),
     honours: async () => setHonours(await db.honours.list()),
     availability: async () => setAvailability(await db.availability.list()),
+    emblems: async () => setEmblems(await db.emblems.list()),
   };
 
   const logout = async () => { await supabase.auth.signOut(); setUser(null); };
@@ -516,7 +536,7 @@ export default function App() {
   if (!user) return <LoginGate users={users} onAuthed={setUser} refreshUsers={refreshUsers} />;
 
   const memberNames = Object.values(users).map((u) => u.name);
-  const ctx = { user, users, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, honours, availability, db, reload, refreshUsers, logout };
+  const ctx = { user, users, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, honours, availability, emblems, db, reload, refreshUsers, logout };
 
   return (
     <Routes>
@@ -599,7 +619,7 @@ function Hub({ ctx }) {
    PROFILE — a member's page: rank, ELO, per-army record, honours
    ============================================================ */
 function ProfilePage({ ctx }) {
-  const { user, users, reports, champions, honours, logout, db, reload } = ctx;
+  const { user, users, reports, champions, honours, emblems, logout, db, reload } = ctx;
   const navigate = useNavigate();
   const { name: rawName } = useParams();
   const name = rawName || "";
@@ -745,7 +765,7 @@ function ProfilePage({ ctx }) {
                 </div>
                 {armyRows.map(([army, s]) => (
                   <div key={army} className={"flex items-center gap-2 border-l-4 px-3 py-2 text-sm " + armyStyle(army)}>
-                    <span className="f-disp flex-1 font-medium">{army}</span>
+                    <span className="f-disp flex flex-1 items-center gap-1.5 font-medium"><ArmyEmblem army={army} emblems={emblems} size={15} />{army}</span>
                     <span className="w-12 text-center">{s.games}</span>
                     <span className="w-12 text-center font-bold text-green-800">{s.w}</span>
                     <span className="w-12 text-center">{s.d}</span>
@@ -1183,11 +1203,49 @@ function HomeTab({ ctx, go }) {
 /* ============================================================
    LEAGUE / CUP PAGES — admin-managed tables and brackets
    ============================================================ */
+function EmblemManager({ ctx, onClose }) {
+  const { emblems, db, reload } = ctx;
+  const [busy, setBusy] = useState("");
+  const upload = async (army, file) => {
+    if (!file) return;
+    setBusy(army);
+    try {
+      const dataURL = await compressImage(file, 128, 0.9);
+      const res = await db.emblems.set(army, dataURL);
+      if (!res.error) await reload.emblems();
+    } catch (e) { /* ignore */ }
+    setBusy("");
+  };
+  const clear = async (army) => { await db.emblems.remove(army); await reload.emblems(); };
+  return (
+    <Modal title="Army emblems" onClose={onClose}>
+      <p className="mb-3 text-xs italic text-stone-500">Upload a small square image per army. Until you do, the default emoji is shown.</p>
+      <div className="max-h-[60vh] space-y-1 overflow-y-auto">
+        {ARMIES.map((a) => {
+          const has = emblems.find((x) => x.army === a);
+          return (
+            <div key={a} className="flex items-center gap-3 border-b border-stone-200 py-1.5">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center"><ArmyEmblem army={a} emblems={emblems} size={22} /></span>
+              <span className="f-body flex-1 text-sm">{a}</span>
+              <label className="f-disp cursor-pointer rounded-sm border border-amber-700 bg-amber-600 px-2 py-1 text-xs text-stone-900 hover:bg-amber-500">
+                {busy === a ? "…" : (has ? "Replace" : "Upload")}
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => upload(a, e.target.files && e.target.files[0])} />
+              </label>
+              {has && <button onClick={() => clear(a)} className="text-stone-400 hover:text-red-800" title="Reset to emoji"><X size={14} /></button>}
+            </div>
+          );
+        })}
+      </div>
+    </Modal>
+  );
+}
+
 function PagesTab({ ctx, kind }) {
-  const { user, pages, db, reload } = ctx;
+  const { user, pages, emblems, db, reload } = ctx;
   const mine = pages.filter((p) => p.kind === kind);
   const [editingId, setEditingId] = useState(null);
   const [showNew, setShowNew] = useState(false);
+  const [showEmblems, setShowEmblems] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const isAdmin = user.isAdmin;
   const label = kind === "league" ? "league table" : "tourney bracket";
@@ -1223,7 +1281,12 @@ function PagesTab({ ctx, kind }) {
   return (
     <div>
       <H icon={kind === "league" ? Trophy : Crown}
-        right={isAdmin && <B small kind="gold" onClick={() => setShowNew(true)}><Plus size={12} /> New {label}</B>}>
+        right={isAdmin && (
+          <span className="flex gap-2">
+            {kind === "league" && <B small kind="ghost" onClick={() => setShowEmblems(true)}><Shield size={12} /> Emblems</B>}
+            <B small kind="gold" onClick={() => setShowNew(true)}><Plus size={12} /> New {label}</B>
+          </span>
+        )}>
         {kind === "league" ? "The League" : "The Grand Tourney"}
       </H>
       {mine.length === 0 && (
@@ -1239,9 +1302,10 @@ function PagesTab({ ctx, kind }) {
             onDone={() => setEditingId(null)}
             onChange={updatePage}
             onDelete={() => deletePage(pg.id)}
-            blankRow={blankRow} />
+            blankRow={blankRow} emblems={emblems} />
         ))}
       </div>
+      {showEmblems && <EmblemManager ctx={ctx} onClose={() => setShowEmblems(false)} />}
       {showNew && (
         <Modal title={"New " + label} onClose={() => setShowNew(false)}>
           <div className="space-y-3">
@@ -1265,7 +1329,7 @@ function PagesTab({ ctx, kind }) {
   );
 }
 
-function PageBlock({ pg, kind, isAdmin, editing, onEdit, onDone, onChange, onDelete, blankRow }) {
+function PageBlock({ pg, kind, isAdmin, editing, onEdit, onDone, onChange, onDelete, blankRow, emblems }) {
   const [draft, setDraft] = useState(pg);
   useEffect(() => { setDraft(pg); }, [pg.id, editing]);
 
@@ -1282,8 +1346,10 @@ function PageBlock({ pg, kind, isAdmin, editing, onEdit, onDone, onChange, onDel
   const delRow = (rid) => setDraft({ ...draft, rows: draft.rows.filter((r) => r.id !== rid) });
   const saveAll = async () => { await onChange(draft); onDone(); };
 
+  const noDraws = !!info.noDraws;
   const cols = kind === "league"
     ? [["player", "Player", "flex-1"], ["army", "Army", "w-36"], ["p", "P", "w-10"], ["w", "W", "w-10"], ["d", "D", "w-10"], ["l", "L", "w-10"], ["pts", "Pts", "w-12"]]
+        .filter(([f]) => !(f === "d" && noDraws))
     : [["round", "Round", "w-28"], ["a", "Combatant A", "flex-1"], ["b", "Combatant B", "flex-1"], ["score", "Result", "w-24"]];
 
   const sortedRows = kind === "league" && !editing
@@ -1322,6 +1388,12 @@ function PageBlock({ pg, kind, isAdmin, editing, onEdit, onDone, onChange, onDel
                   onChange={(e) => setInfo("points", e.target.value)} />
                 <TA rows={4} placeholder="League rules (composition limits, deadlines, scoring…)" value={info.rules}
                   onChange={(e) => setInfo("rules", e.target.value)} />
+                {kind === "league" && (
+                  <label className="f-body flex items-center gap-2 text-sm text-stone-700">
+                    <input type="checkbox" checked={!!info.noDraws} onChange={(e) => setInfo("noDraws", e.target.checked)} />
+                    No draws (play for victory — hides the D column)
+                  </label>
+                )}
                 <p className="f-disp pt-1 text-[11px] font-bold uppercase tracking-widest text-stone-600">FAQs</p>
                 {(info.faqs || []).map((f) => (
                   <div key={f.id} className="space-y-1 rounded-sm border border-stone-300 bg-stone-50/60 p-2">
@@ -1405,7 +1477,7 @@ function PageBlock({ pg, kind, isAdmin, editing, onEdit, onDone, onChange, onDel
                           className={"f-body rounded-sm border border-stone-300 bg-white px-2 py-1 text-sm " + w} />
                       )
                     ) : f === "army" ? (
-                      <span key={f} className={"f-body truncate text-xs italic text-stone-600 " + w}>{r[f] || ""}</span>
+                      <span key={f} className={"f-body flex items-center gap-1 text-xs italic text-stone-600 " + w}><ArmyEmblem army={r[f]} emblems={emblems} size={14} /><span className="truncate">{r[f] || ""}</span></span>
                     ) : (
                       <span key={f} className={"f-body text-sm " + w + (f === "player" || f === "a" || f === "b" ? " font-medium" : f === "pts" ? " font-bold text-red-900" : "")}>{r[f]}</span>
                     )

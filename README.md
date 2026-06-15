@@ -79,6 +79,7 @@ supabase/
   honours.sql            Member side-titles table + RLS (run after rls.sql)
   availability.sql       Availability board + fixture type/competition/scenario
   elo-margins.sql        Victory margins + casual (unranked) games
+  emblems.sql            Army emblems table + storage bucket
 tailwind.config.js
 postcss.config.js
 vite.config.js

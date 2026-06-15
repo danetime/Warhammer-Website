@@ -69,6 +69,10 @@ export const PHOTO_BUCKET = "photos";
 export const photoUrl = (path) =>
   path ? supabase.storage.from(PHOTO_BUCKET).getPublicUrl(path).data.publicUrl : null;
 
+export const EMBLEM_BUCKET = "emblems";
+export const emblemUrl = (path) =>
+  path ? supabase.storage.from(EMBLEM_BUCKET).getPublicUrl(path).data.publicUrl : null;
+
 function dataURLtoBlob(dataURL) {
   const [head, b64] = dataURL.split(",");
   const mime = (head.match(/:(.*?);/) || [])[1] || "image/jpeg";
@@ -170,5 +174,17 @@ export const db = {
     }),
     setTakers: (id, takers) => supabase.from("availability").update({ takers }).eq("id", id),
     remove: (id) => supabase.from("availability").delete().eq("id", id),
+  },
+  emblems: {
+    list: () => list("army_emblems", (r) => ({ army: r.army, path: r.storage_path })),
+    set: async (army, dataURL) => {
+      const blob = dataURLtoBlob(dataURL);
+      const slug = army.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const path = slug + "-" + Date.now() + ".png";
+      const up = await supabase.storage.from(EMBLEM_BUCKET).upload(path, blob, { contentType: blob.type });
+      if (up.error) return up;
+      return supabase.from("army_emblems").upsert({ army, storage_path: path }, { onConflict: "army" });
+    },
+    remove: (army) => supabase.from("army_emblems").delete().eq("army", army),
   },
 };

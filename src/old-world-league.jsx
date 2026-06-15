@@ -159,6 +159,32 @@ const fmtDate = (d) => {
   } catch (e) { return d; }
 };
 
+/* relative day label for upcoming availability ("today", "this Sunday", …) */
+function relDay(d) {
+  if (!d) return "TBC";
+  try {
+    const t = new Date(); t.setHours(0, 0, 0, 0);
+    const dt = new Date(d + "T12:00:00");
+    const diff = Math.round((dt - t) / 86400000);
+    if (diff === 0) return "today";
+    if (diff === 1) return "tomorrow";
+    if (diff > 1 && diff < 7) return "this " + dt.toLocaleDateString("en-GB", { weekday: "long" });
+    if (diff >= 7 && diff < 14) return "next " + dt.toLocaleDateString("en-GB", { weekday: "long" });
+    return dt.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+  } catch (e) { return d; }
+}
+
+/* competition label for fixtures / availability (Friendly / League: <title> / …) */
+const KIND_LABEL = { friendly: "Friendly", league: "League", cup: "Cup" };
+function competitionLabel(pages, item) {
+  const base = KIND_LABEL[item.kind] || "Friendly";
+  if (item.pageId) {
+    const pg = (pages || []).find((p) => p.id === item.pageId);
+    if (pg) return base + ": " + pg.title;
+  }
+  return base;
+}
+
 /* ---------- ELO + records from battle reports ---------- */
 function computeStandings(reports) {
   const elo = {}, rec = {};
@@ -428,6 +454,7 @@ export default function App() {
   const [champions, setChampions] = useState([]);
   const [photosIdx, setPhotosIdx] = useState([]);
   const [honours, setHonours] = useState([]);
+  const [availability, setAvailability] = useState([]);
 
   const refreshUsers = async () => {
     const us = await loadProfiles();
@@ -440,14 +467,14 @@ export default function App() {
       const { data: { session } } = await supabase.auth.getSession();
       await refreshUsers();
       if (session?.user) setUser(await ensureProfile(session.user, null));
-      const [fx, rp, qt, fq, rl, pg, px, pr, ch, hn] = await Promise.all([
+      const [fx, rp, qt, fq, rl, pg, px, pr, ch, hn, av] = await Promise.all([
         db.fixtures.list(), db.reports.list(), db.quotes.list(), db.faqs.list(),
         db.rules.list(), db.pages.list(), db.photos.list(), db.proposals.list(),
-        db.champions.list(), db.honours.list(),
+        db.champions.list(), db.honours.list(), db.availability.list(),
       ]);
       setFixtures(fx); setReports(rp); setQuotes(qt);
       setFaq(fq); setRules(rl); setPages(pg); setPhotosIdx(px);
-      setProposals(pr); setChampions(ch); setHonours(hn);
+      setProposals(pr); setChampions(ch); setHonours(hn); setAvailability(av);
       setBooted(true);
     })();
 
@@ -470,6 +497,7 @@ export default function App() {
     champions: async () => setChampions(await db.champions.list()),
     photosIdx: async () => setPhotosIdx(await db.photos.list()),
     honours: async () => setHonours(await db.honours.list()),
+    availability: async () => setAvailability(await db.availability.list()),
   };
 
   const logout = async () => { await supabase.auth.signOut(); setUser(null); };
@@ -484,7 +512,7 @@ export default function App() {
   if (!user) return <LoginGate users={users} onAuthed={setUser} refreshUsers={refreshUsers} />;
 
   const memberNames = Object.values(users).map((u) => u.name);
-  const ctx = { user, users, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, honours, db, reload, refreshUsers, logout };
+  const ctx = { user, users, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, honours, availability, db, reload, refreshUsers, logout };
 
   return (
     <Routes>
@@ -591,6 +619,19 @@ function ProfilePage({ ctx }) {
     byArmy[army].games++; byArmy[army][res]++;
   }
   const armyRows = Object.entries(byArmy).sort((a, b) => b[1].games - a[1].games);
+
+  const h2h = {};
+  for (const r of reports) {
+    let opp, res;
+    if (r.playerA === who) { opp = r.playerB; res = r.winner === "A" ? "w" : r.winner === "B" ? "l" : "d"; }
+    else if (r.playerB === who) { opp = r.playerA; res = r.winner === "B" ? "w" : r.winner === "A" ? "l" : "d"; }
+    else continue;
+    if (!opp) continue;
+    if (!h2h[opp]) h2h[opp] = { games: 0, w: 0, l: 0, d: 0 };
+    h2h[opp].games++; h2h[opp][res]++;
+  }
+  const h2hRows = Object.entries(h2h).sort((a, b) => b[1].games - a[1].games);
+
   const recent = reports
     .filter((r) => r.playerA === who || r.playerB === who)
     .sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.created - a.created)
@@ -708,7 +749,27 @@ function ProfilePage({ ctx }) {
               </Card>
             )}
 
-            <H icon={Swords}>Recent battles</H>
+            <H icon={Swords}>Head to head</H>
+            {h2hRows.length === 0 ? (
+              <Empty>No rivalries forged yet.</Empty>
+            ) : (
+              <Card className="overflow-hidden">
+                <div className="flex gap-2 border-b border-stone-300 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-stone-500">
+                  <span className="flex-1">Opponent</span><span className="w-12 text-center">P</span><span className="w-12 text-center">W</span><span className="w-12 text-center">D</span><span className="w-12 text-center">L</span>
+                </div>
+                {h2hRows.map(([opp, s]) => (
+                  <div key={opp} className="flex items-center gap-2 px-3 py-2 text-sm">
+                    <button onClick={() => navigate("/member/" + encodeURIComponent(opp))} className="f-disp flex-1 truncate text-left font-medium hover:text-red-900 hover:underline">{opp}</button>
+                    <span className="w-12 text-center">{s.games}</span>
+                    <span className="w-12 text-center font-bold text-green-800">{s.w}</span>
+                    <span className="w-12 text-center">{s.d}</span>
+                    <span className="w-12 text-center text-red-900">{s.l}</span>
+                  </div>
+                ))}
+              </Card>
+            )}
+
+            <H icon={CalendarDays}>Recent battles</H>
             {recent.length === 0 ? (
               <Empty>No battles on record.</Empty>
             ) : (
@@ -767,7 +828,7 @@ function ProfilePage({ ctx }) {
    HOME — Town Square
    ============================================================ */
 function HomeTab({ ctx, go }) {
-  const { user, users, fixtures, reports, quotes, champions, photosIdx, honours, db, reload, refreshUsers } = ctx;
+  const { user, users, fixtures, reports, quotes, champions, photosIdx, honours, availability, pages, db, reload, refreshUsers } = ctx;
   const navigate = useNavigate();
   const [newQuote, setNewQuote] = useState("");
   const [saidBy, setSaidBy] = useState("");
@@ -775,6 +836,11 @@ function HomeTab({ ctx, go }) {
   const [showAward, setShowAward] = useState(false);
   const [awardWho, setAwardWho] = useState("");
   const [awardSeason, setAwardSeason] = useState("");
+  const [showAvail, setShowAvail] = useState(false);
+  const [avDate, setAvDate] = useState(today());
+  const [avKind, setAvKind] = useState("friendly");
+  const [avPage, setAvPage] = useState("");
+  const [avNote, setAvNote] = useState("");
 
   const ladder = computeStandings(reports);
   const shame = shameBoard(reports);
@@ -787,6 +853,9 @@ function HomeTab({ ctx, go }) {
     .slice(0, 3);
   const recentPhotos = [...photosIdx].sort((a, b) => b.created - a.created).slice(0, 2);
   const recentQuotes = [...quotes].sort((a, b) => b.created - a.created).slice(0, 4);
+  const openCalls = [...availability]
+    .filter((a) => !a.date || a.date >= today())
+    .sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"));
 
   useEffect(() => {
     const out = {};
@@ -826,6 +895,25 @@ function HomeTab({ ctx, go }) {
     await reload.champions();
   };
 
+  const postAvail = async () => {
+    if (!avDate) return;
+    await db.availability.add({ member: user.name, date: avDate, kind: avKind, pageId: avKind === "friendly" ? null : (avPage || null), note: avNote.trim() });
+    await reload.availability();
+    setAvDate(today()); setAvKind("friendly"); setAvPage(""); setAvNote(""); setShowAvail(false);
+  };
+  const acceptCall = async (a) => {
+    if (a.member === user.name || (a.takers || []).includes(user.name)) return;
+    await db.fixtures.add({ playerA: a.member, playerB: user.name, date: a.date, points: "", notes: "", kind: a.kind, pageId: a.pageId, scenario: "" });
+    await db.availability.setTakers(a.id, [...(a.takers || []), user.name]);
+    await reload.fixtures();
+    await reload.availability();
+  };
+  const removeCall = async (a) => {
+    if (!(user.isAdmin || a.member === user.name)) return;
+    await db.availability.remove(a.id);
+    await reload.availability();
+  };
+
   const medal = (i) => ["bg-amber-500 text-stone-900", "bg-stone-400 text-stone-900", "bg-amber-800 text-amber-100"][i] || "bg-stone-200 text-stone-600";
 
   return (
@@ -848,6 +936,44 @@ function HomeTab({ ctx, go }) {
             )}
           </div>
         )}
+        <H icon={Swords} right={<B small kind="gold" onClick={() => setShowAvail(true)}><Plus size={12} /> I'm available</B>}>
+          Calls to Arms
+        </H>
+        {openCalls.length === 0 ? (
+          <Empty>No one has posted availability. Be the first to call for a game.</Empty>
+        ) : (
+          <div className="space-y-2">
+            {openCalls.map((a) => {
+              const accepted = (a.takers || []).includes(user.name);
+              const mine = a.member === user.name;
+              return (
+                <Card key={a.id} className="flex items-start justify-between gap-3 p-3">
+                  <div className="min-w-0">
+                    <p className="f-disp text-sm font-bold">
+                      <button onClick={() => navigate("/member/" + encodeURIComponent(a.member))} className="hover:text-red-900 hover:underline">{a.member}</button>
+                      <span className="font-normal text-stone-600"> is up for a </span>
+                      <span className="text-red-900">{competitionLabel(pages, a)}</span>
+                      <span className="font-normal text-stone-600"> — {relDay(a.date)}</span>
+                    </p>
+                    {a.note && <p className="text-xs italic text-stone-500">{a.note}</p>}
+                    {(a.takers || []).length > 0 && (
+                      <p className="mt-0.5 text-[11px] text-stone-500">Answered by {(a.takers || []).join(", ")}</p>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {!mine && (accepted
+                      ? <span className="f-disp text-[11px] uppercase tracking-wide text-green-800">Answered ✓</span>
+                      : <B small kind="primary" onClick={() => acceptCall(a)}><Swords size={12} /> I'm up for it</B>)}
+                    {(mine || user.isAdmin) && (
+                      <button onClick={() => removeCall(a)} className="text-stone-400 hover:text-red-800" title="Withdraw"><Trash2 size={13} /></button>
+                    )}
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+
         <H icon={CalendarDays} right={<B small kind="ghost" onClick={() => go("battles")}>All battles <ChevronRight size={12} /></B>}>
           Upcoming engagements
         </H>
@@ -859,7 +985,7 @@ function HomeTab({ ctx, go }) {
               <Card key={f.id} className="flex items-center justify-between gap-3 p-3">
                 <div>
                   <p className="f-disp text-sm font-bold text-stone-900">{f.playerA} <span className="text-red-900">vs</span> {f.playerB}</p>
-                  <p className="text-xs italic text-stone-500">{f.points ? f.points + " pts" : "Points TBC"}{f.notes ? " · " + f.notes : ""}</p>
+                  <p className="text-xs italic text-stone-500">{competitionLabel(pages, f)}{f.points ? " · " + f.points + " pts" : ""}{f.scenario ? " · " + f.scenario : ""}{f.notes ? " · " + f.notes : ""}</p>
                 </div>
                 <p className="f-disp shrink-0 text-xs uppercase tracking-wide text-amber-800">{fmtDate(f.date)}</p>
               </Card>
@@ -1017,6 +1143,30 @@ function HomeTab({ ctx, go }) {
             <Inp placeholder="Season (e.g. Spring Campaign 2526)" value={awardSeason}
               onChange={(e) => setAwardSeason(e.target.value)} onKeyDown={(e) => e.key === "Enter" && awardChampion()} />
             <B kind="gold" onClick={awardChampion}><Crown size={14} /> Crown the champion</B>
+          </div>
+        </Modal>
+      )}
+
+      {showAvail && (
+        <Modal title="Post your availability" onClose={() => setShowAvail(false)}>
+          <div className="space-y-3">
+            <Inp type="date" value={avDate} onChange={(e) => setAvDate(e.target.value)} />
+            <div>
+              <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Type of game</p>
+              <Sel value={avKind} onChange={(e) => setAvKind(e.target.value)}>
+                <option value="friendly">Friendly</option>
+                <option value="league">League</option>
+                <option value="cup">Cup</option>
+              </Sel>
+            </div>
+            {avKind !== "friendly" && (
+              <Sel value={avPage} onChange={(e) => setAvPage(e.target.value)}>
+                <option value="">— which {avKind === "league" ? "league" : "cup"}? (optional) —</option>
+                {pages.filter((p) => p.kind === avKind).map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+              </Sel>
+            )}
+            <Inp placeholder="Note (e.g. evenings only, can host)" value={avNote} onChange={(e) => setAvNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && postAvail()} />
+            <B onClick={postAvail}><Plus size={14} /> Post availability</B>
           </div>
         </Modal>
       )}
@@ -1273,10 +1423,10 @@ function PageBlock({ pg, kind, isAdmin, editing, onEdit, onDone, onChange, onDel
    BATTLES — fixtures (admin) + battle reports (anyone)
    ============================================================ */
 function BattlesTab({ ctx }) {
-  const { user, memberNames, fixtures, reports, db, reload } = ctx;
+  const { user, memberNames, fixtures, reports, pages, db, reload } = ctx;
   const [showFx, setShowFx] = useState(false);
   const [showRp, setShowRp] = useState(false);
-  const [fx, setFx] = useState({ playerA: "", playerB: "", date: today(), points: "1500", notes: "" });
+  const [fx, setFx] = useState({ playerA: "", playerB: "", date: today(), points: "1500", kind: "friendly", pageId: "", scenario: "", notes: "" });
   const blankReport = () => ({
     playerA: "", playerB: "", armyA: "", armyB: "", date: today(), points: "1500",
     winner: "A", score: "", moment: "", shame: [],
@@ -1287,7 +1437,7 @@ function BattlesTab({ ctx }) {
     if (!fx.playerA.trim() || !fx.playerB.trim()) return;
     await db.fixtures.add(fx);
     await reload.fixtures();
-    setFx({ playerA: "", playerB: "", date: today(), points: "1500", notes: "" });
+    setFx({ playerA: "", playerB: "", date: today(), points: "1500", kind: "friendly", pageId: "", scenario: "", notes: "" });
     setShowFx(false);
   };
   const delFixture = async (id) => { await db.fixtures.remove(id); await reload.fixtures(); };
@@ -1335,7 +1485,7 @@ function BattlesTab({ ctx }) {
             <Card key={f.id} className="flex items-center justify-between gap-3 p-3">
               <div>
                 <p className="f-disp text-sm font-bold">{f.playerA} <span className="text-red-900">vs</span> {f.playerB}</p>
-                <p className="text-xs italic text-stone-500">{fmtDate(f.date)} · {f.points} pts{f.notes ? " · " + f.notes : ""}</p>
+                <p className="text-xs italic text-stone-500">{fmtDate(f.date)} · {competitionLabel(pages, f)}{f.points ? " · " + f.points + " pts" : ""}{f.scenario ? " · " + f.scenario : ""}{f.notes ? " · " + f.notes : ""}</p>
               </div>
               {user.isAdmin && (
                 <button onClick={() => delFixture(f.id)} className="text-stone-400 hover:text-red-800"><Trash2 size={14} /></button>
@@ -1423,7 +1573,21 @@ function BattlesTab({ ctx }) {
               <Inp type="date" value={fx.date} onChange={(e) => setFx({ ...fx, date: e.target.value })} />
               <Inp placeholder="Points (e.g. 1500)" value={fx.points} onChange={(e) => setFx({ ...fx, points: e.target.value })} />
             </div>
-            <Inp placeholder="Notes (venue, scenario…)" value={fx.notes} onChange={(e) => setFx({ ...fx, notes: e.target.value })} />
+            <div className="grid grid-cols-2 gap-3">
+              <Sel value={fx.kind} onChange={(e) => setFx({ ...fx, kind: e.target.value, pageId: "" })}>
+                <option value="friendly">Friendly</option>
+                <option value="league">League</option>
+                <option value="cup">Cup</option>
+              </Sel>
+              {fx.kind !== "friendly" ? (
+                <Sel value={fx.pageId} onChange={(e) => setFx({ ...fx, pageId: e.target.value })}>
+                  <option value="">— which {fx.kind === "league" ? "league" : "cup"}? —</option>
+                  {pages.filter((p) => p.kind === fx.kind).map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+                </Sel>
+              ) : <div />}
+            </div>
+            <Inp placeholder="Scenario (e.g. Dawn Attack)" value={fx.scenario} onChange={(e) => setFx({ ...fx, scenario: e.target.value })} />
+            <Inp placeholder="Notes (venue, etc.)" value={fx.notes} onChange={(e) => setFx({ ...fx, notes: e.target.value })} />
             <B onClick={addFixture}><Plus size={14} /> Schedule</B>
           </div>
         </Modal>

@@ -15,7 +15,8 @@ const rid = () =>
 /* ---------- row mappers: DB (snake_case) -> UI (camelCase) ---------- */
 const fromFixture = (r) => ({
   id: r.id, playerA: r.player_a, playerB: r.player_b, date: r.date,
-  points: r.points, notes: r.notes, created: ts(r.created_at),
+  points: r.points, notes: r.notes, kind: r.kind || "friendly",
+  pageId: r.page_id, scenario: r.scenario, created: ts(r.created_at),
 });
 const fromReport = (r) => ({
   id: r.id, playerA: r.player_a, playerB: r.player_b, armyA: r.army_a, armyB: r.army_b,
@@ -51,6 +52,10 @@ const fromHonour = (r) => ({
   id: r.id, member: r.member, category: r.category, title: r.title,
   season: r.season, awardedBy: r.awarded_by, created: ts(r.created_at),
 });
+const fromAvailability = (r) => ({
+  id: r.id, member: r.member, date: r.date, kind: r.kind, pageId: r.page_id,
+  note: r.note, takers: r.takers || [], created: ts(r.created_at),
+});
 
 const list = async (table, mapper) => {
   const { data, error } = await supabase.from(table).select("*").order("created_at", { ascending: true });
@@ -76,7 +81,8 @@ export const db = {
   fixtures: {
     list: () => list("fixtures", fromFixture),
     add: (f) => supabase.from("fixtures").insert({
-      player_a: f.playerA, player_b: f.playerB, date: f.date || null, points: f.points, notes: f.notes,
+      player_a: f.playerA, player_b: f.playerB, date: f.date || null, points: f.points,
+      notes: f.notes, kind: f.kind || "friendly", page_id: f.pageId || null, scenario: f.scenario || null,
     }),
     remove: (id) => supabase.from("fixtures").delete().eq("id", id),
   },
@@ -152,5 +158,14 @@ export const db = {
       season: h.season || null, awarded_by: h.awardedBy,
     }),
     remove: (id) => supabase.from("honours").delete().eq("id", id),
+  },
+  availability: {
+    list: () => list("availability", fromAvailability),
+    add: (a) => supabase.from("availability").insert({
+      member: a.member, date: a.date || null, kind: a.kind,
+      page_id: a.pageId || null, note: a.note,
+    }),
+    setTakers: (id, takers) => supabase.from("availability").update({ takers }).eq("id", id),
+    remove: (id) => supabase.from("availability").delete().eq("id", id),
   },
 };

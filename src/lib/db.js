@@ -47,6 +47,10 @@ const fromPhoto = (r) => ({
   id: r.id, caption: r.caption, uploader: r.uploader, kind: r.kind,
   votes: r.votes || [], storagePath: r.storage_path, created: ts(r.created_at),
 });
+const fromHonour = (r) => ({
+  id: r.id, member: r.member, category: r.category, title: r.title,
+  season: r.season, awardedBy: r.awarded_by, created: ts(r.created_at),
+});
 
 const list = async (table, mapper) => {
   const { data, error } = await supabase.from(table).select("*").order("created_at", { ascending: true });
@@ -140,5 +144,13 @@ export const db = {
       if (photo.storagePath) await supabase.storage.from(PHOTO_BUCKET).remove([photo.storagePath]);
       return supabase.from("photos").delete().eq("id", photo.id);
     },
+  },
+  honours: {
+    list: () => list("honours", fromHonour),
+    add: (h) => supabase.from("honours").insert({
+      member: h.member, category: h.category, title: h.title,
+      season: h.season || null, awarded_by: h.awardedBy,
+    }),
+    remove: (id) => supabase.from("honours").delete().eq("id", id),
   },
 };

@@ -14,6 +14,7 @@ prototype's `window.storage` to **Supabase**.
 - [Vite](https://vite.dev/) + [React](https://react.dev/) (JavaScript)
 - [Tailwind CSS](https://tailwindcss.com/) v3
 - [lucide-react](https://lucide.dev/) icons
+- [react-router-dom](https://reactrouter.com/) for member profile pages
 - [Supabase](https://supabase.com/) (auth, database, storage) — wired in over the
   next steps
 
@@ -75,6 +76,7 @@ supabase/
   disable-rls-dev.sql    Dev: turn RLS off while building
   storage-policies.sql   Allow members to upload to the photos bucket
   rls.sql                Step 5 RLS policies (re-locks tables before deploy)
+  honours.sql            Member side-titles table + RLS (run after rls.sql)
 tailwind.config.js
 postcss.config.js
 vite.config.js

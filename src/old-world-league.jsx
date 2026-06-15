@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from "react";
+import { Routes, Route, useNavigate, useParams, Link } from "react-router-dom";
 import {
   Swords, Trophy, Scroll, Camera, HelpCircle, Beer, Crown, Plus, Trash2,
   Pencil, LogOut, Upload, ThumbsUp, ThumbsDown, X, Shield, Skull, CalendarDays, Save,
-  BookOpen, Link as LinkIcon, ChevronRight, Gavel
+  BookOpen, Link as LinkIcon, ChevronRight, Gavel, Award, Medal, Star, Utensils, ArrowLeft
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 import { db, photoUrl } from "./lib/db";
@@ -294,6 +295,21 @@ const Modal = ({ title, onClose, children }) => (
   </div>
 );
 
+/* ---------- honours / side-titles (admin-awarded) ---------- */
+const HONOUR_META = {
+  league: { label: "League Champion", Icon: Trophy },
+  cup: { label: "Cup Winner", Icon: Medal },
+  spoon: { label: "Wooden Spoon", Icon: Utensils },
+  custom: { label: "Honour", Icon: Star },
+};
+const HonourBadges = ({ items, size = 12 }) =>
+  !items || items.length === 0
+    ? null
+    : items.map((h) => {
+        const Icon = (HONOUR_META[h.category] || HONOUR_META.custom).Icon;
+        return <Icon key={h.id} size={size} className="shrink-0 text-amber-600" title={h.title + (h.season ? " — " + h.season : "")} />;
+      });
+
 /* ============================================================
    LOGIN GATE
    First soul to register becomes Grand Marshal (admin).
@@ -402,7 +418,6 @@ export default function App() {
   const [booted, setBooted] = useState(false);
   const [user, setUser] = useState(null);
   const [users, setUsers] = useState({});
-  const [tab, setTab] = useState("home");
   const [fixtures, setFixtures] = useState([]);
   const [reports, setReports] = useState([]);
   const [quotes, setQuotes] = useState([]);
@@ -412,6 +427,7 @@ export default function App() {
   const [proposals, setProposals] = useState([]);
   const [champions, setChampions] = useState([]);
   const [photosIdx, setPhotosIdx] = useState([]);
+  const [honours, setHonours] = useState([]);
 
   const refreshUsers = async () => {
     const us = await loadProfiles();
@@ -424,14 +440,14 @@ export default function App() {
       const { data: { session } } = await supabase.auth.getSession();
       await refreshUsers();
       if (session?.user) setUser(await ensureProfile(session.user, null));
-      const [fx, rp, qt, fq, rl, pg, px, pr, ch] = await Promise.all([
+      const [fx, rp, qt, fq, rl, pg, px, pr, ch, hn] = await Promise.all([
         db.fixtures.list(), db.reports.list(), db.quotes.list(), db.faqs.list(),
         db.rules.list(), db.pages.list(), db.photos.list(), db.proposals.list(),
-        db.champions.list(),
+        db.champions.list(), db.honours.list(),
       ]);
       setFixtures(fx); setReports(rp); setQuotes(qt);
       setFaq(fq); setRules(rl); setPages(pg); setPhotosIdx(px);
-      setProposals(pr); setChampions(ch);
+      setProposals(pr); setChampions(ch); setHonours(hn);
       setBooted(true);
     })();
 
@@ -453,6 +469,7 @@ export default function App() {
     proposals: async () => setProposals(await db.proposals.list()),
     champions: async () => setChampions(await db.champions.list()),
     photosIdx: async () => setPhotosIdx(await db.photos.list()),
+    honours: async () => setHonours(await db.honours.list()),
   };
 
   const logout = async () => { await supabase.auth.signOut(); setUser(null); };
@@ -467,8 +484,22 @@ export default function App() {
   if (!user) return <LoginGate users={users} onAuthed={setUser} refreshUsers={refreshUsers} />;
 
   const memberNames = Object.values(users).map((u) => u.name);
-  const ctx = { user, users, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, db, reload, refreshUsers };
+  const ctx = { user, users, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, honours, db, reload, refreshUsers, logout };
 
+  return (
+    <Routes>
+      <Route path="/member/:name" element={<ProfilePage ctx={ctx} />} />
+      <Route path="*" element={<Hub ctx={ctx} />} />
+    </Routes>
+  );
+}
+
+/* ============================================================
+   HUB — masthead, tab nav, and the active tab
+   ============================================================ */
+function Hub({ ctx }) {
+  const { user, logout } = ctx;
+  const [tab, setTab] = useState("home");
   const tabs = [
     { id: "home", label: "Town Square", icon: Beer },
     { id: "league", label: "League", icon: Trophy },
@@ -533,10 +564,211 @@ export default function App() {
 }
 
 /* ============================================================
+   PROFILE — a member's page: rank, ELO, per-army record, honours
+   ============================================================ */
+function ProfilePage({ ctx }) {
+  const { user, users, reports, champions, honours, logout, db, reload } = ctx;
+  const navigate = useNavigate();
+  const { name: rawName } = useParams();
+  const name = rawName || "";
+  const member = Object.values(users).find((u) => u.name.toLowerCase() === name.toLowerCase());
+  const who = member ? member.name : name;
+
+  const games = gamesPlayedMap(reports);
+  const standing = computeStandings(reports).find((r) => r.name === who);
+  const faction = member ? member.faction : "Unknown";
+  const rk = rankFor(faction, games[who] || 0);
+  const isChamp = champions.some((c) => c.isCurrent && c.member === who);
+  const myHonours = honours.filter((h) => h.member === who);
+
+  const byArmy = {};
+  for (const r of reports) {
+    let army, res;
+    if (r.playerA === who) { army = r.armyA || "—"; res = r.winner === "A" ? "w" : r.winner === "B" ? "l" : "d"; }
+    else if (r.playerB === who) { army = r.armyB || "—"; res = r.winner === "B" ? "w" : r.winner === "A" ? "l" : "d"; }
+    else continue;
+    if (!byArmy[army]) byArmy[army] = { games: 0, w: 0, l: 0, d: 0 };
+    byArmy[army].games++; byArmy[army][res]++;
+  }
+  const armyRows = Object.entries(byArmy).sort((a, b) => b[1].games - a[1].games);
+  const recent = reports
+    .filter((r) => r.playerA === who || r.playerB === who)
+    .sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.created - a.created)
+    .slice(0, 6);
+
+  const [showAward, setShowAward] = useState(false);
+  const [cat, setCat] = useState("league");
+  const [hTitle, setHTitle] = useState("");
+  const [hSeason, setHSeason] = useState("");
+  const award = async () => {
+    const title = hTitle.trim() || HONOUR_META[cat].label;
+    await db.honours.add({ member: who, category: cat, title, season: hSeason.trim(), awardedBy: user.name });
+    await reload.honours();
+    setHTitle(""); setHSeason(""); setShowAward(false);
+  };
+  const removeHonour = async (id) => {
+    if (!user.isAdmin) return;
+    await db.honours.remove(id);
+    await reload.honours();
+  };
+
+  return (
+    <div className="parchment f-body min-h-screen text-stone-900">
+      <style>{FONT_CSS}</style>
+      <header className="border-b-4 border-amber-700 bg-stone-900 text-amber-100">
+        <div className="mx-auto max-w-5xl px-4 pb-3 pt-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <Link to="/" className="f-black text-3xl leading-none text-amber-200 hover:text-amber-100 sm:text-4xl">The Old World League</Link>
+              <p className="f-disp mt-1 text-[10px] uppercase tracking-widest text-amber-500/80 sm:text-xs">
+                WHFB 7th Edition · By decree of the Grand Marshal
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="f-disp text-xs text-amber-200">
+                {user.name} {user.isAdmin && <Crown size={12} className="ml-1 inline text-amber-400" />}
+              </p>
+              <p className="text-[11px] italic text-stone-400">{user.faction}</p>
+              <button onClick={logout} className="f-disp mt-1 inline-flex items-center gap-1 text-[11px] uppercase tracking-wide text-stone-400 hover:text-amber-300">
+                <LogOut size={11} /> Sign out
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+      <main className="mx-auto max-w-5xl px-4 pb-16 pt-6">
+        <button onClick={() => navigate("/")} className="f-disp mb-4 inline-flex items-center gap-1 text-xs uppercase tracking-wide text-stone-500 hover:text-red-900">
+          <ArrowLeft size={12} /> Back to the Town Square
+        </button>
+
+        <div className="mb-6 rounded-sm border-2 border-amber-700 bg-gradient-to-r from-amber-100 to-amber-50 p-4 shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="f-disp text-[11px] font-bold uppercase tracking-widest text-amber-800">{rk.title}</p>
+              <h1 className="f-black flex items-center gap-2 text-4xl leading-tight text-red-950">
+                {who}
+                {isChamp && <Crown size={22} className="shrink-0 text-amber-600" title="Champion of the Old World" />}
+              </h1>
+              <p className="text-sm italic text-stone-600">
+                {faction}{member && member.isAdmin ? " · Grand Marshal" : ""}{!member ? " · not on the muster roll" : ""}
+              </p>
+            </div>
+            {user.isAdmin && (
+              <B small kind="gold" onClick={() => setShowAward(true)}><Plus size={12} /> Award title</B>
+            )}
+          </div>
+          {myHonours.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {myHonours.map((h) => {
+                const Icon = (HONOUR_META[h.category] || HONOUR_META.custom).Icon;
+                return (
+                  <span key={h.id} className="group inline-flex items-center gap-1.5 rounded-sm border border-amber-700/50 bg-amber-100/70 px-2 py-1 text-xs font-medium text-stone-800">
+                    <Icon size={13} className="text-amber-700" />
+                    {h.title}{h.season ? <span className="italic text-stone-500"> · {h.season}</span> : null}
+                    {user.isAdmin && (
+                      <button onClick={() => removeHonour(h.id)} className="ml-0.5 hidden text-stone-400 hover:text-red-800 group-hover:inline"><X size={11} /></button>
+                    )}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-1">
+            <H icon={Trophy}>Record</H>
+            <Card className="divide-y divide-stone-200">
+              <div className="flex items-center justify-between px-3 py-2"><span className="f-disp text-sm">ELO rating</span><span className="f-disp text-sm font-bold text-red-900">{standing ? standing.elo : "—"}</span></div>
+              <div className="flex items-center justify-between px-3 py-2"><span className="f-disp text-sm">Games played</span><span className="f-disp text-sm font-bold">{games[who] || 0}</span></div>
+              <div className="flex items-center justify-between px-3 py-2"><span className="f-disp text-sm">Won / Drawn / Lost</span><span className="f-disp text-sm font-bold">{standing ? standing.w + " / " + standing.d + " / " + standing.l : "0 / 0 / 0"}</span></div>
+              <div className="flex items-center justify-between px-3 py-2"><span className="f-disp text-sm">League points</span><span className="f-disp text-sm font-bold">{standing ? standing.pts : 0}</span></div>
+              {!rk.isMax && <div className="px-3 py-2 text-[11px] italic text-stone-500">{rk.toNext} more game(s) to {(RANK_TITLES[faction] || RANK_TITLES["The Empire"])[rk.tier]}</div>}
+            </Card>
+          </div>
+
+          <div className="lg:col-span-2">
+            <H icon={Shield}>Battle record by army</H>
+            {armyRows.length === 0 ? (
+              <Empty>No battles fought yet.</Empty>
+            ) : (
+              <Card className="overflow-hidden">
+                <div className="flex gap-2 border-b border-stone-300 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-stone-500">
+                  <span className="flex-1">Army</span><span className="w-12 text-center">P</span><span className="w-12 text-center">W</span><span className="w-12 text-center">D</span><span className="w-12 text-center">L</span>
+                </div>
+                {armyRows.map(([army, s]) => (
+                  <div key={army} className={"flex items-center gap-2 border-l-4 px-3 py-2 text-sm " + armyStyle(army)}>
+                    <span className="f-disp flex-1 font-medium">{army}</span>
+                    <span className="w-12 text-center">{s.games}</span>
+                    <span className="w-12 text-center font-bold text-green-800">{s.w}</span>
+                    <span className="w-12 text-center">{s.d}</span>
+                    <span className="w-12 text-center text-red-900">{s.l}</span>
+                  </div>
+                ))}
+              </Card>
+            )}
+
+            <H icon={Swords}>Recent battles</H>
+            {recent.length === 0 ? (
+              <Empty>No battles on record.</Empty>
+            ) : (
+              <Card className="divide-y divide-stone-200">
+                {recent.map((r) => {
+                  const opp = r.playerA === who ? r.playerB : r.playerA;
+                  const iWon = (r.playerA === who && r.winner === "A") || (r.playerB === who && r.winner === "B");
+                  const result = r.winner === "draw" ? "Draw" : iWon ? "Win" : "Loss";
+                  const tone = result === "Win" ? "text-green-800" : result === "Loss" ? "text-red-900" : "text-stone-500";
+                  return (
+                    <div key={r.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="f-disp text-sm font-bold">
+                          vs <button onClick={() => navigate("/member/" + encodeURIComponent(opp))} className="hover:text-red-900 hover:underline">{opp}</button>
+                        </p>
+                        <p className="text-[11px] italic text-stone-500">{fmtDate(r.date)}{r.points ? " · " + r.points + " pts" : ""}{r.score ? " · " + r.score : ""}</p>
+                      </div>
+                      <span className={"f-disp text-sm font-bold " + tone}>{result}</span>
+                    </div>
+                  );
+                })}
+              </Card>
+            )}
+          </div>
+        </div>
+      </main>
+      <footer className="border-t border-stone-300 py-4 text-center">
+        <p className="f-disp text-[10px] uppercase tracking-widest text-stone-400">
+          Sigmar protects · No Age of Sigmar beyond this point
+        </p>
+      </footer>
+
+      {showAward && (
+        <Modal title={"Award a title to " + who} onClose={() => setShowAward(false)}>
+          <div className="space-y-3">
+            <div>
+              <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Title</p>
+              <Sel value={cat} onChange={(e) => setCat(e.target.value)}>
+                <option value="league">League Champion</option>
+                <option value="cup">Cup / Tourney Winner</option>
+                <option value="spoon">Wooden Spoon</option>
+                <option value="custom">Custom…</option>
+              </Sel>
+            </div>
+            <Inp placeholder={cat === "custom" ? "Title (e.g. Best Painted)" : "Override label (optional)"} value={hTitle} onChange={(e) => setHTitle(e.target.value)} />
+            <Inp placeholder="Season (e.g. Spring Campaign 2526)" value={hSeason} onChange={(e) => setHSeason(e.target.value)} onKeyDown={(e) => e.key === "Enter" && award()} />
+            <B kind="gold" onClick={award}><Award size={14} /> Bestow the title</B>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
    HOME — Town Square
    ============================================================ */
 function HomeTab({ ctx, go }) {
-  const { user, users, fixtures, reports, quotes, champions, photosIdx, db, reload, refreshUsers } = ctx;
+  const { user, users, fixtures, reports, quotes, champions, photosIdx, honours, db, reload, refreshUsers } = ctx;
+  const navigate = useNavigate();
   const [newQuote, setNewQuote] = useState("");
   const [saidBy, setSaidBy] = useState("");
   const [thumbs, setThumbs] = useState({});
@@ -644,7 +876,7 @@ function HomeTab({ ctx, go }) {
               <div key={r.name} className="flex items-center gap-3 px-3 py-2">
                 <span className={"f-disp flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold " + medal(i)}>{i + 1}</span>
                 <div className="min-w-0 flex-1">
-                  <p className="f-disp truncate text-sm font-bold">{r.name}</p>
+                  <button onClick={() => navigate("/member/" + encodeURIComponent(r.name))} className="f-disp block max-w-full truncate text-left text-sm font-bold hover:text-red-900 hover:underline">{r.name}</button>
                   <p className="text-[11px] text-stone-500">P{r.p} · W{r.w} D{r.d} L{r.l} · {r.pts} pts</p>
                 </div>
                 <p className="f-disp text-sm font-bold text-red-900">{r.elo}</p>
@@ -730,9 +962,10 @@ function HomeTab({ ctx, go }) {
               <div key={key} className="flex items-center justify-between px-3 py-2">
                 <div className="min-w-0">
                   <p className="f-disp flex items-center gap-1.5 text-sm font-bold">
-                    <span className="truncate">{u.name}</span>
+                    <button onClick={() => navigate("/member/" + encodeURIComponent(u.name))} className="truncate text-left hover:text-red-900 hover:underline">{u.name}</button>
                     {isChamp && <Crown size={12} className="shrink-0 text-amber-600" title="Champion of the Old World" />}
                     {u.isAdmin && <Gavel size={10} className="shrink-0 text-stone-400" title="Grand Marshal (admin)" />}
+                    <HonourBadges items={honours.filter((h) => h.member === u.name)} size={11} />
                   </p>
                   <p className="text-[11px] italic text-stone-500" title={rk.isMax ? "Top rank reached" : rk.toNext + " more game(s) to " + (RANK_TITLES[u.faction] || RANK_TITLES["The Empire"])[rk.tier]}>
                     {rk.title} · {u.faction}

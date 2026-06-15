@@ -664,6 +664,8 @@ function ProfilePage({ ctx }) {
     .slice(0, 6);
 
   const [showAward, setShowAward] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [editArmy, setEditArmy] = useState("");
   const [cat, setCat] = useState("league");
   const [hTitle, setHTitle] = useState("");
   const [hSeason, setHSeason] = useState("");
@@ -689,6 +691,12 @@ function ProfilePage({ ctx }) {
       const res = await db.profiles.setImage(member.id, field, dataURL);
       if (!res.error) await refreshUsers();
     } catch (e) { /* ignore */ }
+  };
+  const saveProfile = async () => {
+    if (!member) return;
+    await db.profiles.update(member.id, { faction: editArmy });
+    await refreshUsers();
+    setShowEdit(false);
   };
 
   return (
@@ -722,34 +730,33 @@ function ProfilePage({ ctx }) {
 
         <div className="mb-6 rounded-sm border-2 border-amber-700 bg-gradient-to-r from-amber-100 to-amber-50 p-4 shadow-sm">
           <div className="flex items-start gap-4">
-            <div className="shrink-0">
-              <div className="relative">
+            <div className="flex shrink-0 gap-3">
+              <div className="flex flex-col items-center gap-1">
                 {avatarSrc
-                  ? <img src={avatarSrc} alt="" className="h-20 w-20 rounded-sm border-2 border-amber-700 object-cover shadow-sm" />
-                  : <div className="flex h-20 w-20 items-center justify-center rounded-sm border-2 border-amber-700 bg-stone-200 text-stone-400"><Shield size={28} /></div>}
-                {mascotSrc && <img src={mascotSrc} alt="Mascot" title="Mascot" className="absolute -bottom-2 -right-2 h-9 w-9 rounded-full border-2 border-amber-700 object-cover shadow" />}
+                  ? <img src={avatarSrc} alt="" className="h-28 w-28 rounded-sm border-2 border-amber-700 object-cover shadow-sm" />
+                  : <div className="flex h-28 w-28 items-center justify-center rounded-sm border-2 border-amber-700 bg-stone-200 text-stone-400"><Shield size={40} /></div>}
+                {canEdit
+                  ? <label className="f-disp cursor-pointer text-[10px] uppercase tracking-wide text-stone-500 hover:text-red-900">Avatar<input type="file" accept="image/*" className="hidden" onChange={(e) => uploadImg("avatar_path", e.target.files && e.target.files[0])} /></label>
+                  : <span className="f-disp text-[10px] uppercase tracking-wide text-stone-400">Avatar</span>}
               </div>
-              {canEdit && (
-                <div className="mt-1.5 flex justify-center gap-2">
-                  <label className="f-disp cursor-pointer text-[10px] uppercase tracking-wide text-stone-500 hover:text-red-900">
-                    Avatar<input type="file" accept="image/*" className="hidden" onChange={(e) => uploadImg("avatar_path", e.target.files && e.target.files[0])} />
-                  </label>
-                  <span className="text-[10px] text-stone-300">·</span>
-                  <label className="f-disp cursor-pointer text-[10px] uppercase tracking-wide text-stone-500 hover:text-red-900">
-                    Mascot<input type="file" accept="image/*" className="hidden" onChange={(e) => uploadImg("mascot_path", e.target.files && e.target.files[0])} />
-                  </label>
+              {(mascotSrc || canEdit) && (
+                <div className="flex flex-col items-center gap-1">
+                  {mascotSrc
+                    ? <img src={mascotSrc} alt="Mascot" className="h-20 w-20 rounded-sm border-2 border-amber-700 object-cover shadow-sm" />
+                    : <div className="flex h-20 w-20 items-center justify-center rounded-sm border-2 border-dashed border-amber-700/60 bg-stone-100 text-stone-400"><Camera size={22} /></div>}
+                  {canEdit
+                    ? <label className="f-disp cursor-pointer text-[10px] uppercase tracking-wide text-stone-500 hover:text-red-900">Mascot<input type="file" accept="image/*" className="hidden" onChange={(e) => uploadImg("mascot_path", e.target.files && e.target.files[0])} /></label>
+                    : <span className="f-disp text-[10px] uppercase tracking-wide text-stone-400">Mascot</span>}
                 </div>
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="f-disp text-[11px] font-bold uppercase tracking-widest text-amber-800">{rk.title}</p>
               <h1 className="f-black flex items-center gap-2 text-4xl leading-tight text-red-950">
                 {who}
                 {isChamp && <Crown size={22} className="shrink-0 text-amber-600" title="Champion of the Old World" />}
+                {canEdit && member && <button onClick={() => { setEditArmy(member.faction); setShowEdit(true); }} className="text-stone-400 hover:text-red-900" title="Edit profile"><Pencil size={16} /></button>}
               </h1>
-              <p className="text-sm italic text-stone-600">
-                {faction}{member && member.isAdmin ? " · Grand Marshal" : ""}{!member ? " · not on the muster roll" : ""}
-              </p>
+              <p className="f-disp text-sm italic text-stone-600">{faction} · {rk.title}{!member ? " · not on the muster roll" : ""}</p>
             </div>
             {user.isAdmin && (
               <B small kind="gold" onClick={() => setShowAward(true)}><Plus size={12} /> Award title</B>
@@ -874,6 +881,20 @@ function ProfilePage({ ctx }) {
             <Inp placeholder={cat === "custom" ? "Title (e.g. Best Painted)" : "Override label (optional)"} value={hTitle} onChange={(e) => setHTitle(e.target.value)} />
             <Inp placeholder="Season (e.g. Spring Campaign 2526)" value={hSeason} onChange={(e) => setHSeason(e.target.value)} onKeyDown={(e) => e.key === "Enter" && award()} />
             <B kind="gold" onClick={award}><Award size={14} /> Bestow the title</B>
+          </div>
+        </Modal>
+      )}
+
+      {showEdit && (
+        <Modal title="Edit your profile" onClose={() => setShowEdit(false)}>
+          <div className="space-y-3">
+            <div>
+              <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Army you're currently playing</p>
+              <Sel value={editArmy} onChange={(e) => setEditArmy(e.target.value)}>
+                {ARMIES.map((a) => <option key={a}>{a}</option>)}
+              </Sel>
+            </div>
+            <B onClick={saveProfile}><Save size={14} /> Save</B>
           </div>
         </Modal>
       )}

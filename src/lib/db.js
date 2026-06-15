@@ -192,6 +192,7 @@ export const db = {
     remove: (army) => supabase.from("army_emblems").delete().eq("army", army),
   },
   profiles: {
+    update: (id, patch) => supabase.from("profiles").update(patch).eq("id", id),
     setImage: async (id, field, dataURL) => {
       const blob = dataURLtoBlob(dataURL);
       const path = (field === "mascot_path" ? "mascot" : "avatar") + "/" + id + "-" + Date.now() + ".jpg";

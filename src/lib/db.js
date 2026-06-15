@@ -21,7 +21,8 @@ const fromFixture = (r) => ({
 const fromReport = (r) => ({
   id: r.id, playerA: r.player_a, playerB: r.player_b, armyA: r.army_a, armyB: r.army_b,
   date: r.date, points: r.points, winner: r.winner, score: r.score, moment: r.moment,
-  shame: r.shame || [], filedBy: r.filed_by, created: ts(r.created_at),
+  shame: r.shame || [], filedBy: r.filed_by, margin: r.margin, ranked: r.ranked !== false,
+  created: ts(r.created_at),
 });
 const fromQuote = (r) => ({
   id: r.id, text: r.text, saidBy: r.said_by, addedBy: r.added_by, created: ts(r.created_at),
@@ -90,7 +91,9 @@ export const db = {
     list: () => list("battle_reports", fromReport),
     add: (r) => supabase.from("battle_reports").insert({
       player_a: r.playerA, player_b: r.playerB, army_a: r.armyA, army_b: r.armyB,
-      date: r.date || null, points: r.points, winner: r.winner, score: r.score,
+      date: r.date || null, points: r.points, winner: r.winner,
+      margin: r.winner === "draw" ? null : (r.margin || "victory"),
+      ranked: r.ranked !== false, score: r.score,
       moment: r.moment, shame: r.shame || [], filed_by: r.filedBy,
     }),
     remove: (id) => supabase.from("battle_reports").delete().eq("id", id),

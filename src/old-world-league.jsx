@@ -186,6 +186,9 @@ function competitionLabel(pages, item) {
 }
 
 /* ---------- ELO + records from battle reports ---------- */
+const MARGIN_MULT = { marginal: 0.75, victory: 1, defiant: 1.25 };
+const MARGIN_LABEL = { marginal: "Marginal victory", victory: "Victory", defiant: "Defiant victory" };
+
 function computeStandings(reports) {
   const elo = {}, rec = {};
   const ensure = (p) => {
@@ -198,10 +201,11 @@ function computeStandings(reports) {
   for (const r of sorted) {
     const A = (r.playerA || "").trim(), B = (r.playerB || "").trim();
     if (!A || !B || A === B) continue;
+    if (r.ranked === false) continue;
     ensure(A); ensure(B);
     const ea = 1 / (1 + Math.pow(10, (elo[B] - elo[A]) / 400));
     const sa = r.winner === "A" ? 1 : r.winner === "B" ? 0 : 0.5;
-    const K = 32;
+    const K = 32 * (r.winner === "draw" ? 1 : (MARGIN_MULT[r.margin] || 1));
     elo[A] = Math.round(elo[A] + K * (sa - ea));
     elo[B] = Math.round(elo[B] + K * ((1 - sa) - (1 - ea)));
     rec[A].p++; rec[B].p++;
@@ -611,6 +615,7 @@ function ProfilePage({ ctx }) {
 
   const byArmy = {};
   for (const r of reports) {
+    if (r.ranked === false) continue;
     let army, res;
     if (r.playerA === who) { army = r.armyA || "—"; res = r.winner === "A" ? "w" : r.winner === "B" ? "l" : "d"; }
     else if (r.playerB === who) { army = r.armyB || "—"; res = r.winner === "B" ? "w" : r.winner === "A" ? "l" : "d"; }
@@ -622,6 +627,7 @@ function ProfilePage({ ctx }) {
 
   const h2h = {};
   for (const r of reports) {
+    if (r.ranked === false) continue;
     let opp, res;
     if (r.playerA === who) { opp = r.playerB; res = r.winner === "A" ? "w" : r.winner === "B" ? "l" : "d"; }
     else if (r.playerB === who) { opp = r.playerA; res = r.winner === "B" ? "w" : r.winner === "A" ? "l" : "d"; }
@@ -993,7 +999,7 @@ function HomeTab({ ctx, go }) {
           </div>
         )}
 
-        <H icon={Trophy}>The Ladder</H>
+        <H icon={Trophy} right={<B small kind="ghost" onClick={() => go("faq")}>What's ELO? <HelpCircle size={12} /></B>}>The Ladder</H>
         {ladder.length === 0 ? (
           <Empty>No ranked battles yet. File a battle report and claim the top spot before Dan does.</Empty>
         ) : (
@@ -1429,7 +1435,7 @@ function BattlesTab({ ctx }) {
   const [fx, setFx] = useState({ playerA: "", playerB: "", date: today(), points: "1500", kind: "friendly", pageId: "", scenario: "", notes: "" });
   const blankReport = () => ({
     playerA: "", playerB: "", armyA: "", armyB: "", date: today(), points: "1500",
-    winner: "A", score: "", moment: "", shame: [],
+    winner: "A", margin: "victory", ranked: true, score: "", moment: "", shame: [],
   });
   const [rp, setRp] = useState(blankReport());
 
@@ -1516,7 +1522,7 @@ function BattlesTab({ ctx }) {
                       {r.armyB ? <span className="font-normal italic text-stone-500"> ({r.armyB})</span> : null}
                     </p>
                     <p className="mt-0.5 text-xs text-stone-500">
-                      {fmtDate(r.date)} · {r.points} pts · {winName ? "Victory: " + winName : "Bloody draw"}{r.score ? " · " + r.score : ""}
+                      {fmtDate(r.date)} · {r.points} pts · {winName ? (MARGIN_LABEL[r.margin] || "Victory") + ": " + winName : "Bloody draw"}{r.score ? " · " + r.score : ""}{r.ranked === false ? " · Casual" : ""}
                     </p>
                   </div>
                   {(user.isAdmin || r.filedBy === user.name) && (
@@ -1610,8 +1616,19 @@ function BattlesTab({ ctx }) {
                 <option value="B">Victory: Combatant B</option>
                 <option value="draw">Draw</option>
               </Sel>
-              <Inp placeholder="Result (e.g. Massacre, +840 VP)" value={rp.score} onChange={(e) => setRp({ ...rp, score: e.target.value })} />
+              {rp.winner !== "draw" ? (
+                <Sel value={rp.margin} onChange={(e) => setRp({ ...rp, margin: e.target.value })}>
+                  <option value="marginal">Marginal victory</option>
+                  <option value="victory">Victory</option>
+                  <option value="defiant">Defiant victory</option>
+                </Sel>
+              ) : <div />}
             </div>
+            <Inp placeholder="Result detail (e.g. Massacre, +840 VP)" value={rp.score} onChange={(e) => setRp({ ...rp, score: e.target.value })} />
+            <label className="f-body flex items-center gap-2 text-sm text-stone-700">
+              <input type="checkbox" checked={!rp.ranked} onChange={(e) => setRp({ ...rp, ranked: !e.target.checked })} />
+              Casual game — keep it out of ELO, league points &amp; records
+            </label>
             <TA rows={2} placeholder="Moment of the match…" value={rp.moment} onChange={(e) => setRp({ ...rp, moment: e.target.value })} />
             <div>
               <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Hall of Infamy entries (optional)</p>
@@ -1874,6 +1891,30 @@ function FaqTab({ ctx }) {
 
   return (
     <div>
+      <div className="mb-6 rounded-sm border-2 border-amber-700 bg-amber-100/50 p-4 shadow-sm">
+        <h2 className="f-disp flex items-center gap-2 text-lg font-bold uppercase tracking-wide text-red-950">
+          <Trophy size={18} className="text-amber-700" /> What is ELO?
+        </h2>
+        <div className="rule-line mb-3 mt-1" />
+        <p className="f-body text-sm text-stone-700">
+          ELO is a <span className="font-bold">skill rating</span> borrowed from chess — it answers
+          “who's the best general?”, separate from how often you turn up.
+        </p>
+        <ul className="mt-2 space-y-1 text-sm text-stone-700">
+          <li>Everyone starts at <span className="f-disp font-bold text-red-900">1200</span>.</li>
+          <li>Win and it rises, lose and it falls; a draw barely moves it.</li>
+          <li><span className="font-bold">Beat a higher-rated foe</span> and you gain more; lose to a lower-rated one and you drop more.</li>
+          <li>Victory margin weights the swing — <span className="italic">Marginal ×0.75 · Victory ×1 · Defiant ×1.25</span>.</li>
+          <li><span className="font-bold">Casual</span> games (ticked when filing) don't touch ELO, league points or records.</li>
+        </ul>
+        <div className="mt-3 rounded-sm border border-amber-700/40 bg-white/60 p-3 text-sm text-stone-700">
+          <p className="f-disp text-[11px] font-bold uppercase tracking-widest text-amber-800">Worked example</p>
+          <p className="mt-1">Two equal 1200-rated generals clash. The winner climbs to <span className="font-bold text-red-900">1216</span> and the loser slips to <span className="font-bold text-red-900">1184</span> — a defiant victory would push it a little further still.</p>
+        </div>
+        <p className="mt-2 text-[11px] italic text-stone-500">
+          Separate from league points (Win 3 / Draw 1) and from your army rank, which simply counts games played.
+        </p>
+      </div>
       <H icon={HelpCircle} right={user.isAdmin && <B small kind="gold" onClick={() => setShow(true)}><Plus size={12} /> Add question</B>}>
         The Herald — frequently bellowed questions
       </H>

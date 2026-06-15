@@ -78,6 +78,7 @@ supabase/
   rls.sql                Step 5 RLS policies (re-locks tables before deploy)
   honours.sql            Member side-titles table + RLS (run after rls.sql)
   availability.sql       Availability board + fixture type/competition/scenario
+  elo-margins.sql        Victory margins + casual (unranked) games
 tailwind.config.js
 postcss.config.js
 vite.config.js

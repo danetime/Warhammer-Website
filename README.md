@@ -81,6 +81,7 @@ supabase/
   elo-margins.sql        Victory margins + casual (unranked) games
   emblems.sql            Army emblems table + storage bucket
   avatars.sql            Profile avatar/mascot columns + storage bucket
+  rename.sql             rename_member() — rename a member, carrying history
 tailwind.config.js
 postcss.config.js
 vite.config.js

@@ -483,6 +483,10 @@ export default function App() {
     setUsers(us);
     return us;
   };
+  const refreshUser = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user) setUser(await fetchProfile(session.user.id));
+  };
 
   useEffect(() => {
     (async () => {
@@ -536,7 +540,7 @@ export default function App() {
   if (!user) return <LoginGate users={users} onAuthed={setUser} refreshUsers={refreshUsers} />;
 
   const memberNames = Object.values(users).map((u) => u.name);
-  const ctx = { user, users, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, honours, availability, emblems, db, reload, refreshUsers, logout };
+  const ctx = { user, users, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, honours, availability, emblems, db, reload, refreshUsers, refreshUser, logout };
 
   return (
     <Routes>
@@ -619,7 +623,7 @@ function Hub({ ctx }) {
    PROFILE — a member's page: rank, ELO, per-army record, honours
    ============================================================ */
 function ProfilePage({ ctx }) {
-  const { user, users, reports, champions, honours, emblems, logout, db, reload, refreshUsers } = ctx;
+  const { user, users, reports, champions, honours, emblems, logout, db, reload, refreshUsers, refreshUser } = ctx;
   const navigate = useNavigate();
   const { name: rawName } = useParams();
   const name = rawName || "";
@@ -665,7 +669,9 @@ function ProfilePage({ ctx }) {
 
   const [showAward, setShowAward] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
+  const [editName, setEditName] = useState("");
   const [editArmy, setEditArmy] = useState("");
+  const [editErr, setEditErr] = useState("");
   const [cat, setCat] = useState("league");
   const [hTitle, setHTitle] = useState("");
   const [hSeason, setHSeason] = useState("");
@@ -694,9 +700,19 @@ function ProfilePage({ ctx }) {
   };
   const saveProfile = async () => {
     if (!member) return;
-    await db.profiles.update(member.id, { faction: editArmy });
+    setEditErr("");
+    const nn = editName.trim();
+    if (nn && nn !== member.name) {
+      const { error } = await supabase.rpc("rename_member", { old_name: member.name, new_name: nn });
+      if (error) { setEditErr(error.message || "Could not rename."); return; }
+    }
+    if (editArmy && editArmy !== member.faction) {
+      await db.profiles.update(member.id, { faction: editArmy });
+    }
     await refreshUsers();
+    await refreshUser();
     setShowEdit(false);
+    if (nn && nn !== member.name) navigate("/member/" + encodeURIComponent(nn));
   };
 
   return (
@@ -754,7 +770,7 @@ function ProfilePage({ ctx }) {
               <h1 className="f-black flex items-center gap-2 text-4xl leading-tight text-red-950">
                 {who}
                 {isChamp && <Crown size={22} className="shrink-0 text-amber-600" title="Champion of the Old World" />}
-                {canEdit && member && <button onClick={() => { setEditArmy(member.faction); setShowEdit(true); }} className="text-stone-400 hover:text-red-900" title="Edit profile"><Pencil size={16} /></button>}
+                {canEdit && member && <button onClick={() => { setEditName(member.name); setEditArmy(member.faction); setEditErr(""); setShowEdit(true); }} className="text-stone-400 hover:text-red-900" title="Edit profile"><Pencil size={16} /></button>}
               </h1>
               <p className="f-disp text-sm italic text-stone-600">{faction} · {rk.title}{!member ? " · not on the muster roll" : ""}</p>
             </div>
@@ -889,11 +905,16 @@ function ProfilePage({ ctx }) {
         <Modal title="Edit your profile" onClose={() => setShowEdit(false)}>
           <div className="space-y-3">
             <div>
+              <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Username</p>
+              <Inp value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Your name" />
+            </div>
+            <div>
               <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Army you're currently playing</p>
               <Sel value={editArmy} onChange={(e) => setEditArmy(e.target.value)}>
                 {ARMIES.map((a) => <option key={a}>{a}</option>)}
               </Sel>
             </div>
+            {editErr && <p className="text-sm font-medium text-red-800">{editErr}</p>}
             <B onClick={saveProfile}><Save size={14} /> Save</B>
           </div>
         </Modal>

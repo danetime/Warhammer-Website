@@ -6,7 +6,7 @@ import {
   BookOpen, Link as LinkIcon, ChevronRight, Gavel, Award, Medal, Star, Utensils, ArrowLeft
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
-import { db, photoUrl, emblemUrl } from "./lib/db";
+import { db, photoUrl, emblemUrl, avatarUrl } from "./lib/db";
 
 /* ============================================================
    THE OLD WORLD LEAGUE — a private hub for a WHFB 7th ed group
@@ -35,7 +35,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 /* ---------- profiles (Supabase) -> the shape the UI expects ----------
    The DB stores snake_case; the UI expects { name, faction, isAdmin }. */
 const mapProfile = (p) =>
-  p ? { id: p.id, name: p.display_name, faction: p.faction, isAdmin: p.is_admin, joined: p.joined } : null;
+  p ? { id: p.id, name: p.display_name, faction: p.faction, isAdmin: p.is_admin, joined: p.joined, avatarPath: p.avatar_path, mascotPath: p.mascot_path } : null;
 
 async function loadProfiles() {
   const { data, error } = await supabase
@@ -619,7 +619,7 @@ function Hub({ ctx }) {
    PROFILE — a member's page: rank, ELO, per-army record, honours
    ============================================================ */
 function ProfilePage({ ctx }) {
-  const { user, users, reports, champions, honours, emblems, logout, db, reload } = ctx;
+  const { user, users, reports, champions, honours, emblems, logout, db, reload, refreshUsers } = ctx;
   const navigate = useNavigate();
   const { name: rawName } = useParams();
   const name = rawName || "";
@@ -679,6 +679,18 @@ function ProfilePage({ ctx }) {
     await reload.honours();
   };
 
+  const canEdit = !!member && (member.name === user.name || user.isAdmin);
+  const avatarSrc = member ? avatarUrl(member.avatarPath) : null;
+  const mascotSrc = member ? avatarUrl(member.mascotPath) : null;
+  const uploadImg = async (field, file) => {
+    if (!file || !member) return;
+    try {
+      const dataURL = await compressImage(file, field === "avatar_path" ? 512 : 256, 0.85);
+      const res = await db.profiles.setImage(member.id, field, dataURL);
+      if (!res.error) await refreshUsers();
+    } catch (e) { /* ignore */ }
+  };
+
   return (
     <div className="parchment f-body min-h-screen text-stone-900">
       <style>{FONT_CSS}</style>
@@ -709,8 +721,27 @@ function ProfilePage({ ctx }) {
         </button>
 
         <div className="mb-6 rounded-sm border-2 border-amber-700 bg-gradient-to-r from-amber-100 to-amber-50 p-4 shadow-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
+          <div className="flex items-start gap-4">
+            <div className="shrink-0">
+              <div className="relative">
+                {avatarSrc
+                  ? <img src={avatarSrc} alt="" className="h-20 w-20 rounded-sm border-2 border-amber-700 object-cover shadow-sm" />
+                  : <div className="flex h-20 w-20 items-center justify-center rounded-sm border-2 border-amber-700 bg-stone-200 text-stone-400"><Shield size={28} /></div>}
+                {mascotSrc && <img src={mascotSrc} alt="Mascot" title="Mascot" className="absolute -bottom-2 -right-2 h-9 w-9 rounded-full border-2 border-amber-700 object-cover shadow" />}
+              </div>
+              {canEdit && (
+                <div className="mt-1.5 flex justify-center gap-2">
+                  <label className="f-disp cursor-pointer text-[10px] uppercase tracking-wide text-stone-500 hover:text-red-900">
+                    Avatar<input type="file" accept="image/*" className="hidden" onChange={(e) => uploadImg("avatar_path", e.target.files && e.target.files[0])} />
+                  </label>
+                  <span className="text-[10px] text-stone-300">·</span>
+                  <label className="f-disp cursor-pointer text-[10px] uppercase tracking-wide text-stone-500 hover:text-red-900">
+                    Mascot<input type="file" accept="image/*" className="hidden" onChange={(e) => uploadImg("mascot_path", e.target.files && e.target.files[0])} />
+                  </label>
+                </div>
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
               <p className="f-disp text-[11px] font-bold uppercase tracking-widest text-amber-800">{rk.title}</p>
               <h1 className="f-black flex items-center gap-2 text-4xl leading-tight text-red-950">
                 {who}

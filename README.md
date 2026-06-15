@@ -80,6 +80,7 @@ supabase/
   availability.sql       Availability board + fixture type/competition/scenario
   elo-margins.sql        Victory margins + casual (unranked) games
   emblems.sql            Army emblems table + storage bucket
+  avatars.sql            Profile avatar/mascot columns + storage bucket
 tailwind.config.js
 postcss.config.js
 vite.config.js

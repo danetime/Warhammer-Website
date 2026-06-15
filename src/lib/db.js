@@ -73,6 +73,10 @@ export const EMBLEM_BUCKET = "emblems";
 export const emblemUrl = (path) =>
   path ? supabase.storage.from(EMBLEM_BUCKET).getPublicUrl(path).data.publicUrl : null;
 
+export const AVATAR_BUCKET = "avatars";
+export const avatarUrl = (path) =>
+  path ? supabase.storage.from(AVATAR_BUCKET).getPublicUrl(path).data.publicUrl : null;
+
 function dataURLtoBlob(dataURL) {
   const [head, b64] = dataURL.split(",");
   const mime = (head.match(/:(.*?);/) || [])[1] || "image/jpeg";
@@ -186,5 +190,14 @@ export const db = {
       return supabase.from("army_emblems").upsert({ army, storage_path: path }, { onConflict: "army" });
     },
     remove: (army) => supabase.from("army_emblems").delete().eq("army", army),
+  },
+  profiles: {
+    setImage: async (id, field, dataURL) => {
+      const blob = dataURLtoBlob(dataURL);
+      const path = (field === "mascot_path" ? "mascot" : "avatar") + "/" + id + "-" + Date.now() + ".jpg";
+      const up = await supabase.storage.from(AVATAR_BUCKET).upload(path, blob, { contentType: blob.type });
+      if (up.error) return up;
+      return supabase.from("profiles").update({ [field]: path }).eq("id", id);
+    },
   },
 };

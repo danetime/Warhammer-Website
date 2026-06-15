@@ -52,8 +52,9 @@ This follows the staged build brief:
   admin. Requires email confirmation disabled. `supabase/auth.sql` is optional.
 - [x] **Step 4 — Storage layer:** all data + photos moved to Supabase via
   `src/lib/db.js` (snake_case ↔ UI shapes); photos upload to Storage.
-- [ ] **Step 5 — Security:** re-enable Row Level Security (currently off for
-  dev via `supabase/disable-rls-dev.sql`) with proper policies on every table.
+- [ ] **Step 5 — Security:** re-enable Row Level Security with proper policies
+  (`supabase/rls.sql`): read-all for members, own-row writes, admin-only
+  management, server-side first-member-admin.
 - [ ] **Step 6 — Local test checklist.**
 - [ ] **Step 7 — Deploy** (only when explicitly approved).
 
@@ -70,7 +71,10 @@ src/
     db.js                Data layer: load/CRUD + DB<->UI mapping, photo storage
 supabase/
   schema.sql             Step 2 tables + storage buckets (run in SQL Editor)
-  auth.sql               Step 3 profile trigger + first-user-admin (SQL Editor)
+  auth.sql               Step 3 profile trigger + first-user-admin (optional)
+  disable-rls-dev.sql    Dev: turn RLS off while building
+  storage-policies.sql   Allow members to upload to the photos bucket
+  rls.sql                Step 5 RLS policies (re-locks tables before deploy)
 tailwind.config.js
 postcss.config.js
 vite.config.js

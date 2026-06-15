@@ -51,11 +51,11 @@ async function fetchProfile(id) {
   return mapProfile(data);
 }
 
-/* Ensure a profile row exists for an authed user. Works whether or not the
-   optional DB trigger is installed (upsert ignores an existing row). The first
-   member to receive a profile becomes admin (Grand Marshal). On a returning
-   user with no profile, the name/faction are recovered from their sign-up
-   metadata. is_admin is locked down properly with RLS in Step 5. */
+/* Ensure a profile row exists for an authed user, as a fallback if the DB
+   trigger hasn't created it yet (upsert ignores an existing row). The client
+   only ever creates a NON-admin profile; the trigger assigns first-member
+   admin. On a returning user with no profile, name/faction are recovered from
+   sign-up metadata. */
 async function ensureProfile(authUser, meta) {
   if (!authUser) return null;
   const existing = await fetchProfile(authUser.id);
@@ -63,10 +63,8 @@ async function ensureProfile(authUser, meta) {
   const md = authUser.user_metadata || {};
   const display_name = (meta && meta.display_name) || md.display_name || (authUser.email ? authUser.email.split("@")[0] : "Soldier");
   const faction = (meta && meta.faction) || md.faction || "The Empire";
-  const { count } = await supabase.from("profiles").select("id", { count: "exact", head: true });
-  const isFirst = (count ?? 0) === 0;
   await supabase.from("profiles").upsert(
-    { id: authUser.id, display_name, faction, is_admin: isFirst },
+    { id: authUser.id, display_name, faction, is_admin: false },
     { onConflict: "id", ignoreDuplicates: true }
   );
   return await fetchProfile(authUser.id);

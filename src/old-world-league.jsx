@@ -813,11 +813,11 @@ function ProfilePage({ ctx }) {
               {(mascotSrc || canEdit) && (
                 <div className="flex flex-col items-center gap-1">
                   {mascotSrc
-                    ? <img src={mascotSrc} alt="Mascot" className="h-20 w-20 rounded-sm border-2 border-amber-700 object-cover shadow-sm" />
+                    ? <img src={mascotSrc} alt="Noble Steed" className="h-20 w-20 rounded-sm border-2 border-amber-700 object-cover shadow-sm" />
                     : <div className="flex h-20 w-20 items-center justify-center rounded-sm border-2 border-dashed border-amber-700/60 bg-stone-100 text-stone-400"><Camera size={22} /></div>}
                   {canEdit
-                    ? <label className="f-disp cursor-pointer text-[10px] uppercase tracking-wide text-stone-500 hover:text-red-900">Mascot<input type="file" accept="image/*" className="hidden" onChange={(e) => uploadImg("mascot_path", e.target.files && e.target.files[0])} /></label>
-                    : <span className="f-disp text-[10px] uppercase tracking-wide text-stone-400">Mascot</span>}
+                    ? <label className="f-disp cursor-pointer text-[10px] uppercase tracking-wide text-stone-500 hover:text-red-900">Noble Steed<input type="file" accept="image/*" className="hidden" onChange={(e) => uploadImg("mascot_path", e.target.files && e.target.files[0])} /></label>
+                    : <span className="f-disp text-[10px] uppercase tracking-wide text-stone-400">Noble Steed</span>}
                 </div>
               )}
             </div>

@@ -82,6 +82,7 @@ supabase/
   emblems.sql            Army emblems table + storage bucket
   avatars.sql            Profile avatar/mascot columns + storage bucket
   rename.sql             rename_member() — rename a member, carrying history
+  rounds.sql             round number on fixtures (round-robin scheduling)
 tailwind.config.js
 postcss.config.js
 vite.config.js

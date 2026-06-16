@@ -1110,7 +1110,7 @@ function HomeTab({ ctx, go }) {
                 <Card key={f.id} className="flex items-center justify-between gap-3 p-3">
                   <div className="min-w-0">
                     <p className="f-disp text-sm font-bold">vs <button onClick={() => navigate("/member/" + encodeURIComponent(opp))} className="hover:text-red-900 hover:underline">{opp}</button></p>
-                    <p className="text-xs italic text-stone-500">{competitionLabel(pages, f)}{f.points ? " · " + f.points + " pts" : ""}{f.scenario ? " · " + f.scenario : ""}</p>
+                    <p className="text-xs italic text-stone-500">{f.round != null ? "Round " + f.round + " · " : ""}{competitionLabel(pages, f)}{f.points ? " · " + f.points + " pts" : ""}{f.scenario ? " · " + f.scenario : ""}</p>
                   </div>
                   <p className="f-disp shrink-0 text-xs uppercase tracking-wide text-amber-800">{f.date ? relDay(f.date) : "TBC"}</p>
                 </Card>
@@ -1405,7 +1405,6 @@ function PagesTab({ ctx, kind }) {
   const [showEmblems, setShowEmblems] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [genPage, setGenPage] = useState(null);
-  const [genPoints, setGenPoints] = useState("1500");
   const isAdmin = user.isAdmin;
   const label = kind === "league" ? "league table" : "tourney bracket";
 
@@ -1438,14 +1437,26 @@ function PagesTab({ ctx, kind }) {
   const deletePage = async (id) => { await db.pages.remove(id); await reload.pages(); setEditingId(null); };
   const generateFixtures = async () => {
     if (!genPage) return;
-    const names = [];
+    const players = [];
     for (const r of (genPage.rows || [])) {
       const nm = r.member || (memberNames || []).find((n) => n.toLowerCase() === (r.player || "").toLowerCase()) || (r.player || "").trim();
-      if (nm && !names.includes(nm)) names.push(nm);
+      if (nm && !players.includes(nm)) players.push(nm);
     }
-    for (let i = 0; i < names.length; i++)
-      for (let j = i + 1; j < names.length; j++)
-        await db.fixtures.add({ playerA: names[i], playerB: names[j], date: null, points: genPoints, kind: "league", pageId: genPage.id, scenario: "", notes: "" });
+    if (players.length < 2) { setGenPage(null); return; }
+    const arr = players.slice();
+    if (arr.length % 2 === 1) arr.push(null); // odd count -> a bye each round
+    const n = arr.length, half = n / 2, totalRounds = n - 1;
+    const pairs = [];
+    for (let r = 0; r < totalRounds; r++) {
+      for (let i = 0; i < half; i++) {
+        const a = arr[i], b = arr[n - 1 - i];
+        if (a && b) pairs.push({ a, b, round: r + 1 });
+      }
+      arr.splice(1, 0, arr.pop()); // rotate, keeping the first player fixed
+    }
+    for (const p of pairs) {
+      await db.fixtures.add({ playerA: p.a, playerB: p.b, date: null, points: "", kind: "league", pageId: genPage.id, scenario: "", notes: "", round: p.round });
+    }
     await reload.fixtures();
     setGenPage(null);
   };
@@ -1478,7 +1489,7 @@ function PagesTab({ ctx, kind }) {
               blankRow={blankRow} emblems={emblems} memberNames={memberNames} />
             {kind === "league" && isAdmin && (
               <div className="mt-1 text-right">
-                <B small kind="ghost" onClick={() => { setGenPage(pg); setGenPoints("1500"); }}><CalendarDays size={12} /> Generate fixtures</B>
+                <B small kind="ghost" onClick={() => setGenPage(pg)}><CalendarDays size={12} /> Generate fixtures</B>
               </div>
             )}
           </div>
@@ -1488,9 +1499,8 @@ function PagesTab({ ctx, kind }) {
       {genPage && (
         <Modal title={"Generate fixtures — " + genPage.title} onClose={() => setGenPage(null)}>
           <div className="space-y-3">
-            <p className="text-sm text-stone-600">Creates one scheduled battle for every pair of players in this table (round-robin), linked to this league. Dates are left blank to arrange; players link to profiles where you've set the member link.</p>
-            <Inp placeholder="Points per game (e.g. 1500)" value={genPoints} onChange={(e) => setGenPoints(e.target.value)} />
-            <B onClick={generateFixtures}><CalendarDays size={14} /> Generate</B>
+            <p className="text-sm text-stone-600">Creates the full round-robin — every player meets every other once, split into rounds (Round 1, 2, …). Points and dates are left blank to set later. Players link to profiles where you've set the member link.</p>
+            <B onClick={generateFixtures}><CalendarDays size={14} /> Generate rounds</B>
           </div>
         </Modal>
       )}
@@ -1769,21 +1779,38 @@ function BattlesTab({ ctx }) {
       </H>
       {sortedFixtures.length === 0 ? (
         <Empty>Nothing scheduled. {user.isAdmin ? "Sort it out, Grand Marshal." : "Pester the Grand Marshal."}</Empty>
-      ) : (
-        <div className="space-y-2">
-          {sortedFixtures.map((f) => (
-            <Card key={f.id} className="flex items-center justify-between gap-3 p-3">
-              <div>
-                <p className="f-disp text-sm font-bold">{f.playerA} <span className="text-red-900">vs</span> {f.playerB}</p>
-                <p className="text-xs italic text-stone-500">{fmtDate(f.date)} · {competitionLabel(pages, f)}{f.points ? " · " + f.points + " pts" : ""}{f.scenario ? " · " + f.scenario : ""}{f.notes ? " · " + f.notes : ""}</p>
+      ) : (() => {
+        const fxCard = (f) => (
+          <Card key={f.id} className="flex items-center justify-between gap-3 p-3">
+            <div>
+              <p className="f-disp text-sm font-bold">{f.playerA} <span className="text-red-900">vs</span> {f.playerB}</p>
+              <p className="text-xs italic text-stone-500">{fmtDate(f.date)} · {competitionLabel(pages, f)}{f.points ? " · " + f.points + " pts" : ""}{f.scenario ? " · " + f.scenario : ""}{f.notes ? " · " + f.notes : ""}</p>
+            </div>
+            {user.isAdmin && (
+              <button onClick={() => delFixture(f.id)} className="text-stone-400 hover:text-red-800"><Trash2 size={14} /></button>
+            )}
+          </Card>
+        );
+        const byRound = {}; const noRound = [];
+        for (const f of sortedFixtures) { if (f.round != null) (byRound[f.round] = byRound[f.round] || []).push(f); else noRound.push(f); }
+        const keys = Object.keys(byRound).map(Number).sort((a, b) => a - b);
+        return (
+          <div className="space-y-4">
+            {keys.map((k) => (
+              <div key={k}>
+                <p className="f-disp mb-2 border-b border-amber-700/40 pb-0.5 text-[11px] font-bold uppercase tracking-widest text-amber-800">Round {k}</p>
+                <div className="space-y-2">{byRound[k].map(fxCard)}</div>
               </div>
-              {user.isAdmin && (
-                <button onClick={() => delFixture(f.id)} className="text-stone-400 hover:text-red-800"><Trash2 size={14} /></button>
-              )}
-            </Card>
-          ))}
-        </div>
-      )}
+            ))}
+            {noRound.length > 0 && (
+              <div>
+                {keys.length > 0 && <p className="f-disp mb-2 border-b border-amber-700/40 pb-0.5 text-[11px] font-bold uppercase tracking-widest text-amber-800">Other battles</p>}
+                <div className="space-y-2">{noRound.map(fxCard)}</div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       <H icon={Swords} right={<B small kind="gold" onClick={() => setShowRp(true)}><Plus size={12} /> File battle report</B>}>
         Battle reports

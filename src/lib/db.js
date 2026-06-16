@@ -16,7 +16,7 @@ const rid = () =>
 const fromFixture = (r) => ({
   id: r.id, playerA: r.player_a, playerB: r.player_b, date: r.date,
   points: r.points, notes: r.notes, kind: r.kind || "friendly",
-  pageId: r.page_id, scenario: r.scenario, created: ts(r.created_at),
+  pageId: r.page_id, scenario: r.scenario, round: r.round, created: ts(r.created_at),
 });
 const fromReport = (r) => ({
   id: r.id, playerA: r.player_a, playerB: r.player_b, armyA: r.army_a, armyB: r.army_b,
@@ -94,6 +94,7 @@ export const db = {
     add: (f) => supabase.from("fixtures").insert({
       player_a: f.playerA, player_b: f.playerB, date: f.date || null, points: f.points,
       notes: f.notes, kind: f.kind || "friendly", page_id: f.pageId || null, scenario: f.scenario || null,
+      round: f.round ?? null,
     }),
     remove: (id) => supabase.from("fixtures").delete().eq("id", id),
   },

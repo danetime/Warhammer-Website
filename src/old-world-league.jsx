@@ -726,7 +726,7 @@ function Hub({ ctx }) {
             </div>
             <div className="text-right">
               <p className="f-disp text-xs text-amber-200">
-                {user.name} {user.isAdmin && <Crown size={12} className="ml-1 inline text-amber-400" />}
+                <Link to={"/member/" + encodeURIComponent(user.name)} className="hover:text-amber-100 hover:underline">{user.name}</Link> {user.isAdmin && <Crown size={12} className="ml-1 inline text-amber-400" />}
               </p>
               <p className="text-[11px] italic text-stone-400">{user.faction}</p>
               <button onClick={logout} className="f-disp mt-1 inline-flex items-center gap-1 text-[11px] uppercase tracking-wide text-stone-400 hover:text-amber-300">
@@ -891,7 +891,7 @@ function ProfilePage({ ctx }) {
             </div>
             <div className="text-right">
               <p className="f-disp text-xs text-amber-200">
-                {user.name} {user.isAdmin && <Crown size={12} className="ml-1 inline text-amber-400" />}
+                <Link to={"/member/" + encodeURIComponent(user.name)} className="hover:text-amber-100 hover:underline">{user.name}</Link> {user.isAdmin && <Crown size={12} className="ml-1 inline text-amber-400" />}
               </p>
               <p className="text-[11px] italic text-stone-400">{user.faction}</p>
               <button onClick={logout} className="f-disp mt-1 inline-flex items-center gap-1 text-[11px] uppercase tracking-wide text-stone-400 hover:text-amber-300">

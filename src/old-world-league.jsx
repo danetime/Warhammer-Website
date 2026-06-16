@@ -1226,7 +1226,7 @@ function HomeTab({ ctx, go }) {
           <Empty>No ranked battles yet. File a battle report and claim the top spot before Dan does.</Empty>
         ) : (
           <Card className="divide-y divide-stone-200">
-            {ladder.slice(0, 6).map((r, i) => (
+            {ladder.slice(0, 5).map((r, i) => (
               <div key={r.name} className="flex items-center gap-3 px-3 py-2">
                 <span className={"f-disp flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold " + medal(i)}>{i + 1}</span>
                 <div className="min-w-0 flex-1">
@@ -1744,6 +1744,14 @@ function BattlesTab({ ctx }) {
     setShowFx(false);
   };
   const delFixture = async (id) => { await db.fixtures.remove(id); await reload.fixtures(); };
+  const saveRoundNote = async (pg, k, val) => {
+    if (!pg) return;
+    const v = (val || "").trim();
+    const rounds = { ...(pg.info?.rounds || {}) };
+    if (v) rounds[k] = v; else delete rounds[k];
+    await db.pages.update(pg.id, { info: { ...(pg.info || {}), rounds } });
+    await reload.pages();
+  };
 
   const addReport = async () => {
     if (!rp.playerA.trim() || !rp.playerB.trim()) return;
@@ -1799,12 +1807,26 @@ function BattlesTab({ ctx }) {
         const keys = Object.keys(byRound).map(Number).sort((a, b) => a - b);
         return (
           <div className="space-y-4">
-            {keys.map((k) => (
+            {keys.map((k) => {
+              const pg = pages.find((p) => p.id === byRound[k][0]?.pageId);
+              const note = pg?.info?.rounds?.[k];
+              return (
               <div key={k}>
-                <p className="f-disp mb-2 border-b border-amber-700/40 pb-0.5 text-[11px] font-bold uppercase tracking-widest text-amber-800">Round {k}</p>
+                <p className="f-disp mb-1 border-b border-amber-700/40 pb-0.5 text-[11px] font-bold uppercase tracking-widest text-amber-800">Round {k}</p>
+                {user.isAdmin && pg ? (
+                  <input
+                    defaultValue={note || ""}
+                    placeholder="Add a note for this round (e.g. 750 pts · special rules)…"
+                    onBlur={(e) => { if ((e.target.value || "").trim() !== (note || "")) saveRoundNote(pg, k, e.target.value); }}
+                    className="field mb-2 w-full px-2 py-1 text-[11px] italic"
+                  />
+                ) : note ? (
+                  <p className="mb-2 text-[11px] italic text-stone-600">{note}</p>
+                ) : null}
                 <div className="space-y-2">{byRound[k].map(fxCard)}</div>
               </div>
-            ))}
+              );
+            })}
             {noRound.length > 0 && (
               <div>
                 {keys.length > 0 && <p className="f-disp mb-2 border-b border-amber-700/40 pb-0.5 text-[11px] font-bold uppercase tracking-widest text-amber-800">Other battles</p>}

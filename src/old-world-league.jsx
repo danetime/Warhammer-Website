@@ -534,6 +534,9 @@ export default function App() {
   const [availability, setAvailability] = useState([]);
   const [emblems, setEmblems] = useState([]);
   const [laurels, setLaurels] = useState([]);
+  const [settings, setSettings] = useState({});
+
+  const siteName = (typeof settings.site_name === "string" && settings.site_name.trim()) ? settings.site_name : "The Old World League";
 
   const refreshUsers = async () => {
     const us = await loadProfiles();
@@ -552,16 +555,16 @@ export default function App() {
     // Load all data (incl. the roster) independently of auth, then boot.
     (async () => {
       try {
-        const [us, fx, rp, qt, fq, rl, pg, px, pr, ch, hn, av, em, lr] = await Promise.all([
+        const [us, fx, rp, qt, fq, rl, pg, px, pr, ch, hn, av, em, lr, st] = await Promise.all([
           loadProfiles(), db.fixtures.list(), db.reports.list(), db.quotes.list(), db.faqs.list(),
           db.rules.list(), db.pages.list(), db.photos.list(), db.proposals.list(),
           db.champions.list(), db.honours.list(), db.availability.list(), db.emblems.list(),
-          db.laurels.list(),
+          db.laurels.list(), db.settings.get(),
         ]);
         setUsers(us); setFixtures(fx); setReports(rp); setQuotes(qt);
         setFaq(fq); setRules(rl); setPages(pg); setPhotosIdx(px);
         setProposals(pr); setChampions(ch); setHonours(hn); setAvailability(av); setEmblems(em);
-        setLaurels(lr);
+        setLaurels(lr); setSettings(st);
       } catch (e) { console.error("boot (data) failed", e); }
       finish();
     })();
@@ -598,7 +601,10 @@ export default function App() {
     availability: async () => setAvailability(await db.availability.list()),
     emblems: async () => setEmblems(await db.emblems.list()),
     laurels: async () => setLaurels(await db.laurels.list()),
+    settings: async () => setSettings(await db.settings.get()),
   };
+
+  useEffect(() => { document.title = siteName; }, [siteName]);
 
   const logout = async () => { await supabase.auth.signOut(); setUser(null); };
 
@@ -612,7 +618,7 @@ export default function App() {
   if (!user) return <LoginGate users={users} onAuthed={setUser} refreshUsers={refreshUsers} />;
 
   const memberNames = Object.values(users).map((u) => u.name);
-  const ctx = { user, users, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, honours, availability, emblems, laurels, db, reload, refreshUsers, refreshUser, logout };
+  const ctx = { user, users, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, honours, availability, emblems, laurels, settings, siteName, db, reload, refreshUsers, refreshUser, logout };
 
   return (
     <ErrorBoundary>
@@ -628,7 +634,7 @@ export default function App() {
    HUB — masthead, tab nav, and the active tab
    ============================================================ */
 function Hub({ ctx }) {
-  const { user, logout } = ctx;
+  const { user, logout, siteName } = ctx;
   const [tab, setTab] = useState("home");
   const [menuOpen, setMenuOpen] = useState(false);
   const tabs = [
@@ -654,7 +660,7 @@ function Hub({ ctx }) {
         <div className="mx-auto max-w-5xl px-4 pb-3 pt-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h1 className="f-black text-3xl leading-none text-amber-200 sm:text-4xl">The Old World League</h1>
+              <h1 className="f-black text-3xl leading-none text-amber-200 sm:text-4xl">{siteName}</h1>
               <p className="f-disp mt-1 text-[10px] uppercase tracking-widest text-amber-500/80 sm:text-xs">
                 WHFB 7th Edition · By decree of the Grand Marshal
               </p>
@@ -723,7 +729,7 @@ function Hub({ ctx }) {
    PROFILE — a member's page: rank, ELO, per-army record, honours
    ============================================================ */
 function ProfilePage({ ctx }) {
-  const { user, users, reports, champions, honours, emblems, logout, db, reload, refreshUsers, refreshUser } = ctx;
+  const { user, users, reports, champions, honours, emblems, logout, siteName, db, reload, refreshUsers, refreshUser } = ctx;
   const navigate = useNavigate();
   const { name: rawName } = useParams();
   const name = rawName || "";
@@ -816,7 +822,7 @@ function ProfilePage({ ctx }) {
         <div className="mx-auto max-w-5xl px-4 pb-3 pt-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <Link to="/" className="f-black text-3xl leading-none text-amber-200 hover:text-amber-100 sm:text-4xl">The Old World League</Link>
+              <Link to="/" className="f-black text-3xl leading-none text-amber-200 hover:text-amber-100 sm:text-4xl">{siteName}</Link>
               <p className="f-disp mt-1 text-[10px] uppercase tracking-widest text-amber-500/80 sm:text-xs">
                 WHFB 7th Edition · By decree of the Grand Marshal
               </p>
@@ -1145,6 +1151,7 @@ function HomeTab({ ctx, go }) {
   return (
     <div className="grid gap-6 lg:grid-cols-3">
       <div className="lg:col-span-2">
+        <SocialBanner ctx={ctx} />
         {currentChamp && (
           <div className="mb-6 flex items-center gap-4 rounded-sm border-2 border-amber-600 bg-gradient-to-r from-amber-100 to-amber-50 p-4 shadow-sm">
             <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-amber-500 text-stone-900 shadow-md ring-2 ring-amber-700">
@@ -2753,12 +2760,21 @@ function FameTab({ ctx }) {
    ADMIN — the Grand Marshal's chambers (admins only)
    ============================================================ */
 function AdminTab({ ctx }) {
-  const { user, users, fixtures, reports, pages, proposals, champions, laurels, honours, availability, quotes, faq, rules, photosIdx, emblems, db, refreshUsers } = ctx;
+  const { user, users, fixtures, reports, pages, proposals, champions, laurels, honours, availability, quotes, faq, rules, photosIdx, emblems, siteName, db, reload, refreshUsers } = ctx;
   const navigate = useNavigate();
   const [showEmblems, setShowEmblems] = useState(false);
   const [busy, setBusy] = useState("");
+  const [nameDraft, setNameDraft] = useState(siteName);
+  const [nameSaved, setNameSaved] = useState(false);
 
   if (!user.isAdmin) return <Empty>The Grand Marshal's chambers are barred to you.</Empty>;
+
+  const saveName = async () => {
+    await db.settings.set("site_name", nameDraft.trim() || "The Old World League");
+    await reload.settings();
+    setNameSaved(true);
+    setTimeout(() => setNameSaved(false), 1800);
+  };
 
   const setArmy = async (id, faction) => { await db.profiles.update(id, { faction }); await refreshUsers(); };
   const toggleAdmin = async (id, val) => { await db.profiles.setAdmin(id, val); await refreshUsers(); };
@@ -2806,6 +2822,16 @@ function AdminTab({ ctx }) {
         {stat("Photos", photosIdx.length)}
       </div>
 
+      <H icon={Pencil}>Website name</H>
+      <Card className="p-3">
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Inp value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} placeholder="The Old World League"
+            onKeyDown={(e) => e.key === "Enter" && saveName()} />
+          <B kind="gold" onClick={saveName}><Save size={14} /> {nameSaved ? "Saved ✓" : "Save name"}</B>
+        </div>
+        <p className="mt-1.5 text-[11px] italic text-stone-500">Shown in the banner across the site. Leave blank to reset to “The Old World League”.</p>
+      </Card>
+
       <H icon={Shield}>Members</H>
       <Card className="divide-y divide-stone-200">
         {memberList.map(([id, u]) => (
@@ -2842,5 +2868,90 @@ function AdminTab({ ctx }) {
 
       {showEmblems && <EmblemManager ctx={ctx} onClose={() => setShowEmblems(false)} />}
     </div>
+  );
+}
+
+/* ============================================================
+   SOCIAL BANNER — the next gathering (home page)
+   ============================================================ */
+function SocialBanner({ ctx }) {
+  const { user, settings, memberNames, db, reload } = ctx;
+  const social = (settings.next_social && typeof settings.next_social === "object") ? settings.next_social : {};
+  const has = !!(social.date || social.host || social.location);
+  const [show, setShow] = useState(false);
+  const [draft, setDraft] = useState({ host: "", location: "", date: "", note: "" });
+
+  const open = () => {
+    setDraft({ host: social.host || "", location: social.location || "", date: social.date || "", note: social.note || "" });
+    setShow(true);
+  };
+  const save = async () => {
+    await db.settings.set("next_social", { host: draft.host.trim(), location: draft.location.trim(), date: draft.date, note: draft.note.trim() });
+    await reload.settings();
+    setShow(false);
+  };
+  const clear = async () => {
+    if (!confirm("Clear the next gathering?")) return;
+    await db.settings.set("next_social", {});
+    await reload.settings();
+    setShow(false);
+  };
+
+  if (!has && !user.isAdmin) return null;
+
+  return (
+    <>
+      {has ? (
+        <div className="mb-6 flex items-start gap-4 rounded-sm border-2 border-amber-600 bg-gradient-to-r from-amber-100 to-amber-50 p-4 shadow-sm">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-sm bg-stone-900 text-amber-200 ring-2 ring-amber-700">
+            <CalendarDays size={24} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="f-disp text-[11px] font-bold uppercase tracking-widest text-amber-800">Next gathering</p>
+            <p className="f-black text-2xl leading-tight text-red-950">{social.date ? relDay(social.date) : "Date to be confirmed"}</p>
+            <p className="text-sm text-stone-700">
+              {social.date && <span className="font-medium">{fmtDate(social.date)}</span>}
+              {social.host && <span>{social.date ? " · " : ""}{social.host} is hosting</span>}
+              {social.location && <span>{(social.date || social.host) ? " · " : ""}{social.location}</span>}
+            </p>
+            {social.note && <p className="mt-0.5 text-xs italic text-stone-600">{social.note}</p>}
+          </div>
+          {user.isAdmin && (
+            <button onClick={open} title="Edit the next gathering"
+              className="shrink-0 rounded-sm border border-stone-300 bg-white/70 p-1.5 text-stone-500 hover:text-red-900"><Pencil size={16} /></button>
+          )}
+        </div>
+      ) : (
+        <button onClick={open}
+          className="mb-6 flex w-full items-center justify-center gap-2 rounded-sm border-2 border-dashed border-amber-600/60 bg-amber-50/40 p-3 text-sm text-amber-800 hover:bg-amber-100/60">
+          <CalendarDays size={16} /> Set the next gathering
+        </button>
+      )}
+
+      {show && (
+        <Modal title="The next gathering" onClose={() => setShow(false)}>
+          <div className="space-y-3">
+            <div>
+              <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Date</p>
+              <Inp type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} />
+            </div>
+            <div>
+              <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Host (optional)</p>
+              <Inp list="social-hosts" placeholder="e.g. Ollie — leave blank if there's no host" value={draft.host} onChange={(e) => setDraft({ ...draft, host: e.target.value })} />
+              <datalist id="social-hosts">{(memberNames || []).map((n) => <option key={n} value={n} />)}</datalist>
+            </div>
+            <div>
+              <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Location</p>
+              <Inp placeholder="e.g. Ollie's place, or out hunting for games at Firestorm" value={draft.location} onChange={(e) => setDraft({ ...draft, location: e.target.value })} />
+            </div>
+            <Inp placeholder="Note (optional, e.g. bring 1,000 pt armies)" value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value })} />
+            <div className="flex gap-2">
+              <B kind="gold" onClick={save}><Save size={14} /> Save</B>
+              {has && <B kind="ghost" onClick={clear}><Trash2 size={14} /> Clear</B>}
+            </div>
+          </div>
+        </Modal>
+      )}
+    </>
   );
 }

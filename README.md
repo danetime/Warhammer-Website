@@ -86,6 +86,7 @@ supabase/
   hall-of-fame.sql       laurels table — past champions & cup winners (admin)
   photo-comments.sql     comments column on photos (members comment on the gallery)
   admin.sql              admin_delete_member() — remove a member (account + profile)
+  settings.sql           key/value site settings (editable name + next gathering)
 tailwind.config.js
 postcss.config.js
 vite.config.js

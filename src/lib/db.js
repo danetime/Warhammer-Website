@@ -205,6 +205,18 @@ export const db = {
     }),
     remove: (id) => supabase.from("laurels").delete().eq("id", id),
   },
+  settings: {
+    get: async () => {
+      try {
+        const { data, error } = await supabase.from("settings").select("*");
+        if (error) { console.error("load settings failed", error); return {}; }
+        const out = {};
+        for (const r of data || []) out[r.key] = r.value;
+        return out;
+      } catch (e) { console.error("load settings threw", e); return {}; }
+    },
+    set: (key, value) => supabase.from("settings").upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: "key" }),
+  },
   profiles: {
     update: (id, patch) => supabase.from("profiles").update(patch).eq("id", id),
     setAdmin: (id, isAdmin) => supabase.from("profiles").update({ is_admin: isAdmin }).eq("id", id),

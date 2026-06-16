@@ -25,6 +25,7 @@ const FONT_CSS = `
 }
 .rule-line { height:2px; background: linear-gradient(90deg, transparent, #92400e 20%, #7f1d1d 50%, #92400e 80%, transparent); }
 input:focus, textarea:focus, select:focus, button:focus-visible { outline: 2px solid #b45309; outline-offset: 1px; }
+.field { background-color: #fbf3df; background-image: radial-gradient(rgba(120,84,32,0.05) 1px, transparent 1px); background-size: 10px 10px; box-shadow: inset 0 1px 2px rgba(120,84,32,0.12); }
 `;
 
 /* ---------- id generator for nested JSONB rows (page rows, charter FAQs) ---------- */
@@ -299,17 +300,17 @@ const B = ({ children, onClick, kind = "primary", small, disabled, title }) => {
 const Inp = (props) => (
   <input
     {...props}
-    className={"f-body w-full rounded-sm border border-stone-400 bg-white/80 px-3 py-2 text-sm text-stone-900 placeholder-stone-400 " + (props.className || "")}
+    className={"f-body field w-full rounded-sm border border-amber-800/40 px-3 py-2 text-sm text-stone-900 placeholder-stone-500 " + (props.className || "")}
   />
 );
 const TA = (props) => (
   <textarea
     {...props}
-    className={"f-body w-full rounded-sm border border-stone-400 bg-white/80 px-3 py-2 text-sm text-stone-900 placeholder-stone-400 " + (props.className || "")}
+    className={"f-body field w-full rounded-sm border border-amber-800/40 px-3 py-2 text-sm text-stone-900 placeholder-stone-500 " + (props.className || "")}
   />
 );
 const Sel = ({ children, ...props }) => (
-  <select {...props} className="f-body w-full rounded-sm border border-stone-400 bg-white/80 px-2 py-2 text-sm text-stone-900">
+  <select {...props} className="f-body field w-full rounded-sm border border-amber-800/40 px-2 py-2 text-sm text-stone-900">
     {children}
   </select>
 );
@@ -2237,7 +2238,7 @@ function CouncilTab({ ctx }) {
     Object.entries(p.votes || {}).filter(([, v]) => v === dir).map(([n]) => n).join(", ") || "nobody";
 
   const Seal = () => (
-    <div className="flex h-14 w-14 shrink-0 -rotate-12 items-center justify-center rounded-full bg-red-800 text-amber-100 shadow-md ring-2 ring-red-950">
+    <div className="flex h-14 w-14 shrink-0 -rotate-12 items-center justify-center rounded-full bg-green-800 text-amber-100 shadow-md ring-2 ring-green-900">
       <div className="text-center leading-none">
         <Gavel size={13} className="mx-auto" />
         <span className="f-disp mt-0.5 block text-[6.5px] font-bold tracking-widest">RATIFIED</span>
@@ -2282,7 +2283,7 @@ function CouncilTab({ ctx }) {
           {sealed.map((p) => {
             const { ayes, nays } = tally(p);
             return (
-              <Card key={p.id} className="flex items-start gap-3 border-amber-700 bg-amber-100/50 p-4">
+              <Card key={p.id} className="flex items-start gap-3 border-green-700 bg-green-50 p-4">
                 <Seal />
                 <div className="min-w-0 flex-1">
                   <p className="f-disp text-sm font-bold">{p.title}</p>
@@ -2349,7 +2350,7 @@ function CouncilTab({ ctx }) {
             {struck.map((p) => {
               const { ayes, nays } = tally(p);
               return (
-                <Card key={p.id} className="flex items-center justify-between gap-2 p-3 opacity-60">
+                <Card key={p.id} className="flex items-center justify-between gap-2 border-red-800 bg-red-50/70 p-3">
                   <p className="text-sm line-through">{p.title} <span className="text-[11px] italic no-underline">({ayes}–{nays})</span></p>
                   {user.isAdmin && (
                     <button onClick={() => remove(p)} className="shrink-0 text-stone-400 hover:text-red-800"><Trash2 size={13} /></button>

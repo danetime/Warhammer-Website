@@ -1391,7 +1391,7 @@ function EmblemManager({ ctx, onClose }) {
 }
 
 function PagesTab({ ctx, kind }) {
-  const { user, pages, emblems, db, reload } = ctx;
+  const { user, pages, emblems, memberNames, db, reload } = ctx;
   const mine = pages.filter((p) => p.kind === kind);
   const [editingId, setEditingId] = useState(null);
   const [showNew, setShowNew] = useState(false);
@@ -1452,7 +1452,7 @@ function PagesTab({ ctx, kind }) {
             onDone={() => setEditingId(null)}
             onChange={updatePage}
             onDelete={() => deletePage(pg.id)}
-            blankRow={blankRow} emblems={emblems} />
+            blankRow={blankRow} emblems={emblems} memberNames={memberNames} />
         ))}
       </div>
       {showEmblems && <EmblemManager ctx={ctx} onClose={() => setShowEmblems(false)} />}
@@ -1479,7 +1479,7 @@ function PagesTab({ ctx, kind }) {
   );
 }
 
-function PageBlock({ pg, kind, isAdmin, editing, onEdit, onDone, onChange, onDelete, blankRow, emblems }) {
+function PageBlock({ pg, kind, isAdmin, editing, onEdit, onDone, onChange, onDelete, blankRow, emblems, memberNames }) {
   const [draft, setDraft] = useState(pg);
   useEffect(() => { setDraft(pg); }, [pg.id, editing]);
 
@@ -1498,13 +1498,15 @@ function PageBlock({ pg, kind, isAdmin, editing, onEdit, onDone, onChange, onDel
 
   const noDraws = !!info.noDraws;
   const cols = kind === "league"
-    ? [["player", "Player", "flex-1"], ["army", "Army", "w-36"], ["p", "P", "w-10"], ["w", "W", "w-10"], ["d", "D", "w-10"], ["l", "L", "w-10"], ["pts", "Pts", "w-12"]]
+    ? [["player", "Player", "w-32 truncate"], ["army", "Army", "w-36"], ["p", "P", "w-10"], ["w", "W", "w-10"], ["d", "D", "w-10"], ["l", "L", "w-10"], ["pts", "Pts", "w-12"]]
         .filter(([f]) => !(f === "d" && noDraws))
     : [["round", "Round", "w-28"], ["a", "Combatant A", "flex-1"], ["b", "Combatant B", "flex-1"], ["score", "Result", "w-24"]];
 
   const sortedRows = kind === "league" && !editing
     ? [...pg.rows].sort((a, b) => (parseInt(b.pts) || 0) - (parseInt(a.pts) || 0))
     : pg.rows;
+  const navigate = useNavigate();
+  const rowMember = (r) => r.member || (memberNames || []).find((n) => n.toLowerCase() === (r.player || "").toLowerCase()) || null;
 
   return (
     <Card className="overflow-hidden">
@@ -1614,24 +1616,44 @@ function PageBlock({ pg, kind, isAdmin, editing, onEdit, onDone, onChange, onDel
                   </p>
                 )}
                 <div className={"flex items-center gap-2 py-1.5 " + rowCls}>
-                  {cols.map(([f, lab, w]) =>
-                    editing ? (
-                      f === "army" ? (
+                  {cols.map(([f, lab, w]) => {
+                    if (editing) {
+                      if (f === "army") return (
                         <select key={f} value={r[f] || ""} onChange={(e) => setRow(r.id, f, e.target.value)}
                           className={"f-body rounded-sm border border-stone-300 bg-white px-1 py-1 text-sm " + w}>
                           <option value="">— army —</option>
                           {ARMIES.map((a) => <option key={a}>{a}</option>)}
                         </select>
-                      ) : (
+                      );
+                      if (f === "player") return (
+                        <div key={f} className={"flex flex-col gap-1 " + w}>
+                          <input value={r.player || ""} onChange={(e) => setRow(r.id, "player", e.target.value)} placeholder="Name"
+                            className="f-body rounded-sm border border-stone-300 bg-white px-2 py-1 text-sm" />
+                          <select value={r.member || ""} onChange={(e) => setRow(r.id, "member", e.target.value)}
+                            className="f-body rounded-sm border border-stone-300 bg-white px-1 py-1 text-[11px] text-stone-500" title="Link this row to a member's profile">
+                            <option value="">— link to member —</option>
+                            {(memberNames || []).map((n) => <option key={n} value={n}>{n}</option>)}
+                          </select>
+                        </div>
+                      );
+                      return (
                         <input key={f} value={r[f]} onChange={(e) => setRow(r.id, f, e.target.value)}
                           className={"f-body rounded-sm border border-stone-300 bg-white px-2 py-1 text-sm " + w} />
-                      )
-                    ) : f === "army" ? (
+                      );
+                    }
+                    if (f === "army") return (
                       <span key={f} className={"f-body flex items-center gap-1 text-xs italic text-stone-600 " + w}><ArmyEmblem army={r[f]} emblems={emblems} size={14} /><span className="truncate">{r[f] || ""}</span></span>
-                    ) : (
-                      <span key={f} className={"f-body text-sm " + w + (f === "player" || f === "a" || f === "b" ? " font-medium" : f === "pts" ? " font-bold text-red-900" : "")}>{r[f]}</span>
-                    )
-                  )}
+                    );
+                    if (f === "player") {
+                      const m = rowMember(r);
+                      return m
+                        ? <button key={f} onClick={() => navigate("/member/" + encodeURIComponent(m))} className={"f-body truncate text-left text-sm font-medium text-red-900 hover:underline " + w}>{r.player}</button>
+                        : <span key={f} className={"f-body truncate text-sm font-medium " + w}>{r.player}</span>;
+                    }
+                    return (
+                      <span key={f} className={"f-body text-sm " + w + (f === "a" || f === "b" ? " font-medium" : f === "pts" ? " font-bold text-red-900" : "")}>{r[f]}</span>
+                    );
+                  })}
                   {editing && (
                     <button onClick={() => delRow(r.id)} className="w-8 text-stone-400 hover:text-red-800"><Trash2 size={13} /></button>
                   )}

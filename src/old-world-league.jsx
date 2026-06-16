@@ -2355,6 +2355,38 @@ function FaqTab({ ctx }) {
           Separate from league points (Win 3 / Draw 1) and from your army rank, which simply counts games played.
         </p>
       </div>
+
+      <div className="mb-6 rounded-sm border-2 border-amber-700 bg-amber-100/50 p-4 shadow-sm">
+        <h2 className="f-disp flex items-center gap-2 text-lg font-bold uppercase tracking-wide text-red-950">
+          <Shield size={18} className="text-amber-700" /> Climbing the ranks
+        </h2>
+        <div className="rule-line mb-3 mt-1" />
+        <p className="f-body text-sm text-stone-700">
+          Your <span className="font-bold">rank</span> is a badge of <span className="font-bold">dedication, not skill</span> — it rewards
+          turning up and rolling dice. Every battle you file counts as a game played: win or lose, draw, or even a <span className="italic">casual</span> bout.
+        </p>
+        <ul className="mt-2 space-y-1 text-sm text-stone-700">
+          <li>There are <span className="f-disp font-bold text-red-900">ten ranks</span>. You begin at the bottom and rise as your tally of games grows.</li>
+          <li>Each army climbs its <span className="font-bold">own ladder of titles</span>, themed to its lore — an Empire general rises from Stableboy to Lord-General of the Empire; a Dwarf from Beardling to King under the Mountain.</li>
+          <li>Switch armies and you <span className="font-bold">keep your standing</span>, but take up your new army's titles.</li>
+          <li>Your rank — and how many games to the next — shows on your profile and the Muster Roll.</li>
+        </ul>
+        <div className="mt-3 rounded-sm border border-amber-700/40 bg-white/60 p-3">
+          <p className="f-disp text-[11px] font-bold uppercase tracking-widest text-amber-800">The promotion ladder — Empire example</p>
+          <div className="mt-1.5 grid grid-cols-1 gap-x-5 gap-y-0.5 sm:grid-cols-2">
+            {RANK_TITLES["The Empire"].map((title, i) => (
+              <div key={title} className="flex items-baseline justify-between gap-2 border-b border-amber-700/15 py-0.5">
+                <span className="f-disp text-sm text-stone-800">{i + 1}. {title}</span>
+                <span className="shrink-0 text-[11px] font-bold text-amber-800">{RANK_THRESHOLDS[i] === 0 ? "start" : RANK_THRESHOLDS[i] + " games"}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <p className="mt-2 text-[11px] italic text-stone-500">
+          Separate from Might (your skill rating) and from league points — rank simply counts the battles you've fought.
+        </p>
+      </div>
+
       <H icon={HelpCircle} right={user.isAdmin && <B small kind="gold" onClick={() => setShow(true)}><Plus size={12} /> Add question</B>}>
         The Herald — frequently bellowed questions
       </H>

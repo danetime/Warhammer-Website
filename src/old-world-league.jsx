@@ -1793,8 +1793,14 @@ function BattlesTab({ ctx }) {
             <div className="grid grid-cols-2 gap-3">
               <PlayerInput placeholder="Combatant A" value={rp.playerA} onChange={(e) => setRp({ ...rp, playerA: e.target.value })} />
               <PlayerInput placeholder="Combatant B" value={rp.playerB} onChange={(e) => setRp({ ...rp, playerB: e.target.value })} />
-              <Inp placeholder="Army A (e.g. The Empire)" value={rp.armyA} onChange={(e) => setRp({ ...rp, armyA: e.target.value })} />
-              <Inp placeholder="Army B" value={rp.armyB} onChange={(e) => setRp({ ...rp, armyB: e.target.value })} />
+              <Sel value={rp.armyA} onChange={(e) => setRp({ ...rp, armyA: e.target.value })}>
+                <option value="">— Army A —</option>
+                {ARMIES.map((a) => <option key={a}>{a}</option>)}
+              </Sel>
+              <Sel value={rp.armyB} onChange={(e) => setRp({ ...rp, armyB: e.target.value })}>
+                <option value="">— Army B —</option>
+                {ARMIES.map((a) => <option key={a}>{a}</option>)}
+              </Sel>
               <Inp type="date" value={rp.date} onChange={(e) => setRp({ ...rp, date: e.target.value })} />
               <Inp placeholder="Points" value={rp.points} onChange={(e) => setRp({ ...rp, points: e.target.value })} />
             </div>

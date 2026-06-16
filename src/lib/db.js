@@ -59,9 +59,11 @@ const fromAvailability = (r) => ({
 });
 
 const list = async (table, mapper) => {
-  const { data, error } = await supabase.from(table).select("*").order("created_at", { ascending: true });
-  if (error) { console.error("load " + table + " failed", error); return []; }
-  return (data || []).map(mapper);
+  try {
+    const { data, error } = await supabase.from(table).select("*").order("created_at", { ascending: true });
+    if (error) { console.error("load " + table + " failed", error); return []; }
+    return (data || []).map(mapper);
+  } catch (e) { console.error("load " + table + " threw", e); return []; }
 };
 
 /* ---------- photo storage ---------- */

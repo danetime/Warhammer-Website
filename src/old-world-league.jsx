@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Component } from "react";
 import { Routes, Route, useNavigate, useParams, Link } from "react-router-dom";
 import {
   Swords, Trophy, Scroll, Camera, HelpCircle, Beer, Crown, Plus, Trash2,
@@ -38,18 +38,22 @@ const mapProfile = (p) =>
   p ? { id: p.id, name: p.display_name, faction: p.faction, isAdmin: p.is_admin, joined: p.joined, avatarPath: p.avatar_path, mascotPath: p.mascot_path } : null;
 
 async function loadProfiles() {
-  const { data, error } = await supabase
-    .from("profiles").select("*").order("joined", { ascending: true });
-  if (error || !data) return {};
-  const out = {};
-  for (const p of data) out[p.id] = mapProfile(p);
-  return out;
+  try {
+    const { data, error } = await supabase
+      .from("profiles").select("*").order("joined", { ascending: true });
+    if (error || !data) return {};
+    const out = {};
+    for (const p of data) out[p.id] = mapProfile(p);
+    return out;
+  } catch (e) { console.error("loadProfiles failed", e); return {}; }
 }
 
 async function fetchProfile(id) {
   if (!id) return null;
-  const { data } = await supabase.from("profiles").select("*").eq("id", id).maybeSingle();
-  return mapProfile(data);
+  try {
+    const { data } = await supabase.from("profiles").select("*").eq("id", id).maybeSingle();
+    return mapProfile(data);
+  } catch (e) { console.error("fetchProfile failed", e); return null; }
 }
 
 /* Ensure a profile row exists for an authed user, as a fallback if the DB
@@ -459,6 +463,31 @@ function LoginGate({ users, onAuthed, refreshUsers }) {
 }
 
 /* ============================================================
+   ERROR BOUNDARY — show a message instead of a blank screen
+   ============================================================ */
+class ErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error("Render error", error, info); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="parchment f-body flex min-h-screen items-center justify-center p-6 text-center">
+          <style>{FONT_CSS}</style>
+          <div className="max-w-lg">
+            <p className="f-disp text-lg font-bold text-red-950">Something went awry on the battlefield.</p>
+            <p className="mt-2 text-sm text-stone-600">Try reloading. If it persists, the details are in the browser console (F12).</p>
+            <pre className="mt-3 max-h-48 overflow-auto rounded-sm border border-stone-300 bg-stone-100 p-2 text-left text-xs text-red-800">{String(this.state.error)}</pre>
+            <button onClick={() => location.reload()} className="f-disp mt-3 rounded-sm border border-red-950 bg-red-900 px-4 py-2 text-sm text-amber-50 hover:bg-red-800">Reload</button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/* ============================================================
    APP SHELL
    ============================================================ */
 export default function App() {
@@ -489,28 +518,40 @@ export default function App() {
   };
 
   useEffect(() => {
+    let settled = false;
+    const finish = () => { if (!settled) { settled = true; setBooted(true); } };
+
+    // Load all data (incl. the roster) independently of auth, then boot.
     (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      await refreshUsers();
-      if (session?.user) setUser(await ensureProfile(session.user, null));
-      const [fx, rp, qt, fq, rl, pg, px, pr, ch, hn, av] = await Promise.all([
-        db.fixtures.list(), db.reports.list(), db.quotes.list(), db.faqs.list(),
-        db.rules.list(), db.pages.list(), db.photos.list(), db.proposals.list(),
-        db.champions.list(), db.honours.list(), db.availability.list(),
-      ]);
-      setFixtures(fx); setReports(rp); setQuotes(qt);
-      setFaq(fq); setRules(rl); setPages(pg); setPhotosIdx(px);
-      setProposals(pr); setChampions(ch); setHonours(hn); setAvailability(av);
-      setEmblems(await db.emblems.list());
-      setBooted(true);
+      try {
+        const [us, fx, rp, qt, fq, rl, pg, px, pr, ch, hn, av, em] = await Promise.all([
+          loadProfiles(), db.fixtures.list(), db.reports.list(), db.quotes.list(), db.faqs.list(),
+          db.rules.list(), db.pages.list(), db.photos.list(), db.proposals.list(),
+          db.champions.list(), db.honours.list(), db.availability.list(), db.emblems.list(),
+        ]);
+        setUsers(us); setFixtures(fx); setReports(rp); setQuotes(qt);
+        setFaq(fq); setRules(rl); setPages(pg); setPhotosIdx(px);
+        setProposals(pr); setChampions(ch); setHonours(hn); setAvailability(av); setEmblems(em);
+      } catch (e) { console.error("boot (data) failed", e); }
+      finish();
     })();
 
+    // Resolve the current user separately so a slow auth lock can't hang boot.
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) setUser(await ensureProfile(session.user, null));
+      } catch (e) { console.error("boot (auth) failed", e); }
+    })();
+
+    const safety = setTimeout(finish, 8000);
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setTimeout(async () => {
-        setUser(session?.user ? await ensureProfile(session.user, null) : null);
+        try { setUser(session?.user ? await ensureProfile(session.user, null) : null); }
+        catch (e) { console.error("auth change failed", e); }
       }, 0);
     });
-    return () => subscription.unsubscribe();
+    return () => { clearTimeout(safety); subscription.unsubscribe(); };
   }, []);
 
   const reload = {
@@ -543,10 +584,12 @@ export default function App() {
   const ctx = { user, users, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, honours, availability, emblems, db, reload, refreshUsers, refreshUser, logout };
 
   return (
-    <Routes>
-      <Route path="/member/:name" element={<ProfilePage ctx={ctx} />} />
-      <Route path="*" element={<Hub ctx={ctx} />} />
-    </Routes>
+    <ErrorBoundary>
+      <Routes>
+        <Route path="/member/:name" element={<ProfilePage ctx={ctx} />} />
+        <Route path="*" element={<Hub ctx={ctx} />} />
+      </Routes>
+    </ErrorBoundary>
   );
 }
 

@@ -207,6 +207,31 @@ function competitionLabel(pages, item) {
   return base;
 }
 
+/* resolve a fixture's player to its league label + linked member (live), so a
+   fixture shows the short league name and links to the right profile whether it
+   was stored under the label or the username. */
+function fixtureSide(pages, memberNames, f, side) {
+  const raw = f[side] || "";
+  const lower = raw.toLowerCase();
+  const matched = (memberNames || []).find((n) => n.toLowerCase() === lower) || null;
+  if (f.pageId) {
+    const pg = (pages || []).find((p) => p.id === f.pageId);
+    const row = pg && (pg.rows || []).find((r) =>
+      (r.player || "").toLowerCase() === lower || (r.member || "").toLowerCase() === lower);
+    if (row) {
+      const member = row.member || (memberNames || []).find((n) => n.toLowerCase() === (row.player || "").toLowerCase()) || null;
+      return { label: row.player || raw, member };
+    }
+  }
+  return { label: raw, member: matched };
+}
+function FxSide({ f, side, pages, memberNames, navigate }) {
+  const s = fixtureSide(pages, memberNames, f, side);
+  return s.member
+    ? <button onClick={() => navigate("/member/" + encodeURIComponent(s.member))} className="hover:text-red-900 hover:underline">{s.label || "—"}</button>
+    : <span>{s.label}</span>;
+}
+
 /* ---------- ELO + records from battle reports ---------- */
 const MARGIN_MULT = { marginal: 0.75, victory: 1, defiant: 1.25 };
 const MARGIN_LABEL = { marginal: "Marginal victory", victory: "Victory", defiant: "Defiant victory" };
@@ -988,7 +1013,7 @@ function ProfilePage({ ctx }) {
    HOME — Town Square
    ============================================================ */
 function HomeTab({ ctx, go }) {
-  const { user, users, fixtures, reports, quotes, champions, photosIdx, honours, availability, pages, db, reload, refreshUsers } = ctx;
+  const { user, users, fixtures, reports, quotes, champions, photosIdx, honours, availability, pages, memberNames, db, reload, refreshUsers } = ctx;
   const navigate = useNavigate();
   const [newQuote, setNewQuote] = useState("");
   const [saidBy, setSaidBy] = useState("");
@@ -1017,7 +1042,7 @@ function HomeTab({ ctx, go }) {
     .filter((a) => !a.date || a.date >= today())
     .sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"));
   const myFixtures = [...fixtures]
-    .filter((f) => (f.playerA === user.name || f.playerB === user.name) && (!f.date || f.date >= today()))
+    .filter((f) => (fixtureSide(pages, memberNames, f, "playerA").member === user.name || fixtureSide(pages, memberNames, f, "playerB").member === user.name) && (!f.date || f.date >= today()))
     .sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"));
 
   useEffect(() => {
@@ -1105,11 +1130,11 @@ function HomeTab({ ctx, go }) {
         ) : (
           <div className="space-y-2">
             {myFixtures.map((f) => {
-              const opp = f.playerA === user.name ? f.playerB : f.playerA;
+              const oppSide = fixtureSide(pages, memberNames, f, "playerA").member === user.name ? "playerB" : "playerA";
               return (
                 <Card key={f.id} className="flex items-center justify-between gap-3 p-3">
                   <div className="min-w-0">
-                    <p className="f-disp text-sm font-bold">vs <button onClick={() => navigate("/member/" + encodeURIComponent(opp))} className="hover:text-red-900 hover:underline">{opp}</button></p>
+                    <p className="f-disp text-sm font-bold">vs <FxSide f={f} side={oppSide} pages={pages} memberNames={memberNames} navigate={navigate} /></p>
                     <p className="text-xs italic text-stone-500">{f.round != null ? "Round " + f.round + " · " : ""}{competitionLabel(pages, f)}{f.points ? " · " + f.points + " pts" : ""}{f.scenario ? " · " + f.scenario : ""}</p>
                   </div>
                   <p className="f-disp shrink-0 text-xs uppercase tracking-wide text-amber-800">{f.date ? relDay(f.date) : "TBC"}</p>
@@ -1167,7 +1192,7 @@ function HomeTab({ ctx, go }) {
             {upcoming.map((f) => (
               <Card key={f.id} className="flex items-center justify-between gap-3 p-3">
                 <div>
-                  <p className="f-disp text-sm font-bold text-stone-900">{f.playerA} <span className="text-red-900">vs</span> {f.playerB}</p>
+                  <p className="f-disp text-sm font-bold text-stone-900"><FxSide f={f} side="playerA" pages={pages} memberNames={memberNames} navigate={navigate} /> <span className="text-red-900">vs</span> <FxSide f={f} side="playerB" pages={pages} memberNames={memberNames} navigate={navigate} /></p>
                   <p className="text-xs italic text-stone-500">{competitionLabel(pages, f)}{f.points ? " · " + f.points + " pts" : ""}{f.scenario ? " · " + f.scenario : ""}{f.notes ? " · " + f.notes : ""}</p>
                 </div>
                 <p className="f-disp shrink-0 text-xs uppercase tracking-wide text-amber-800">{fmtDate(f.date)}</p>
@@ -1701,6 +1726,7 @@ function PageBlock({ pg, kind, isAdmin, editing, onEdit, onDone, onChange, onDel
    ============================================================ */
 function BattlesTab({ ctx }) {
   const { user, memberNames, fixtures, reports, pages, db, reload } = ctx;
+  const navigate = useNavigate();
   const [showFx, setShowFx] = useState(false);
   const [showRp, setShowRp] = useState(false);
   const [fx, setFx] = useState({ playerA: "", playerB: "", date: today(), points: "1500", kind: "friendly", pageId: "", scenario: "", notes: "" });
@@ -1760,7 +1786,7 @@ function BattlesTab({ ctx }) {
         const fxCard = (f) => (
           <Card key={f.id} className="flex items-center justify-between gap-3 p-3">
             <div>
-              <p className="f-disp text-sm font-bold">{f.playerA} <span className="text-red-900">vs</span> {f.playerB}</p>
+              <p className="f-disp text-sm font-bold"><FxSide f={f} side="playerA" pages={pages} memberNames={memberNames} navigate={navigate} /> <span className="text-red-900">vs</span> <FxSide f={f} side="playerB" pages={pages} memberNames={memberNames} navigate={navigate} /></p>
               <p className="text-xs italic text-stone-500">{fmtDate(f.date)} · {competitionLabel(pages, f)}{f.points ? " · " + f.points + " pts" : ""}{f.scenario ? " · " + f.scenario : ""}{f.notes ? " · " + f.notes : ""}</p>
             </div>
             {user.isAdmin && (

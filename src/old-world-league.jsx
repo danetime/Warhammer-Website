@@ -173,6 +173,48 @@ function rankFor(army, games) {
   };
 }
 
+/* games played per member, split by the army they fielded, from ALL reports
+   (casual games count toward rank too). A game with no army recorded is
+   attributed to that player's set army, so a member's tally never drops when
+   ranks become per-army. Returns { name: { army: count } }. */
+function gamesByArmyMap(reports, users) {
+  const factionOf = {};
+  for (const u of Object.values(users || {})) {
+    const n = ((u && u.name) || "").trim();
+    if (n) factionOf[n] = u.faction;
+  }
+  const m = {};
+  const bump = (name, army) => {
+    const n = (name || "").trim();
+    if (!n) return;
+    const a = (army && army.trim()) ? army.trim() : factionOf[n];
+    if (!a) return;
+    if (!m[n]) m[n] = {};
+    m[n][a] = (m[n][a] || 0) + 1;
+  };
+  for (const r of reports) {
+    const a = (r.playerA || "").trim(), b = (r.playerB || "").trim();
+    bump(a, r.armyA);
+    if (b && b !== a) bump(b, r.armyB);
+  }
+  return m;
+}
+
+/* a member's headline rank: their set army if they've fielded it at all,
+   otherwise their most-experienced (most-played) army. Adds .army to the
+   rankFor() result so callers know which ladder it came from. */
+function headlineRankFor(member, byArmy) {
+  const armies = byArmy || {};
+  const set = member && member.faction;
+  let army = (set && armies[set] > 0) ? set : null;
+  if (!army) {
+    let best = 0;
+    for (const [a, n] of Object.entries(armies)) if (n > best) { best = n; army = a; }
+  }
+  if (!army) army = set || "The Empire";
+  return { army, ...rankFor(army, armies[army] || 0) };
+}
+
 const fmtDate = (d) => {
   if (!d) return "TBC";
   try {
@@ -737,9 +779,10 @@ function ProfilePage({ ctx }) {
   const who = member ? member.name : name;
 
   const games = gamesPlayedMap(reports);
+  const armyGames = gamesByArmyMap(reports, users);
+  const myArmyGames = armyGames[who] || {};
   const standing = computeStandings(reports).find((r) => r.name === who);
-  const faction = member ? member.faction : "Unknown";
-  const rk = rankFor(faction, games[who] || 0);
+  const rk = headlineRankFor(member, myArmyGames);
   const isChamp = champions.some((c) => c.isCurrent && c.member === who);
   const myHonours = honours.filter((h) => h.member === who);
 
@@ -867,7 +910,7 @@ function ProfilePage({ ctx }) {
                     <span className="break-words">{who}</span>
                     {isChamp && <Crown size={22} className="shrink-0 text-amber-600" title="Champion of the Old World" />}
                   </h1>
-                  <p className="f-disp text-sm italic text-stone-600">{faction} · {rk.title}{!member ? " · not on the muster roll" : ""}</p>
+                  <p className="f-disp text-sm italic text-stone-600">{rk.army} · {rk.title}{!member ? " · not on the muster roll" : ""}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {canEdit && member && (
@@ -909,7 +952,7 @@ function ProfilePage({ ctx }) {
               <div className="flex items-center justify-between px-3 py-2"><span className="f-disp text-sm">Games played</span><span className="f-disp text-sm font-bold">{games[who] || 0}</span></div>
               <div className="flex items-center justify-between px-3 py-2"><span className="f-disp text-sm">Won / Drawn / Lost</span><span className="f-disp text-sm font-bold">{standing ? standing.w + " / " + standing.d + " / " + standing.l : "0 / 0 / 0"}</span></div>
               <div className="flex items-center justify-between px-3 py-2"><span className="f-disp text-sm">League points</span><span className="f-disp text-sm font-bold">{standing ? standing.pts : 0}</span></div>
-              {!rk.isMax && <div className="px-3 py-2 text-[11px] italic text-stone-500">{rk.toNext} more game(s) to {(RANK_TITLES[faction] || RANK_TITLES["The Empire"])[rk.tier]}</div>}
+              {!rk.isMax && <div className="px-3 py-2 text-[11px] italic text-stone-500">{rk.toNext} more {rk.army} game(s) to {(RANK_TITLES[rk.army] || RANK_TITLES["The Empire"])[rk.tier]}</div>}
             </Card>
           </div>
 
@@ -922,15 +965,25 @@ function ProfilePage({ ctx }) {
                 <div className="flex gap-2 border-b border-stone-300 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-stone-500">
                   <span className="flex-1">Army</span><span className="w-12 text-center">P</span><span className="w-12 text-center">W</span><span className="w-12 text-center">D</span><span className="w-12 text-center">L</span>
                 </div>
-                {armyRows.map(([army, s]) => (
+                {armyRows.map(([army, s]) => {
+                  const ac = myArmyGames[army] || s.games;
+                  const ar = RANK_TITLES[army] ? rankFor(army, ac) : null;
+                  return (
                   <div key={army} className={"flex items-center gap-2 border-l-4 px-3 py-2 text-sm " + armyStyle(army)}>
-                    <span className="f-disp flex flex-1 items-center gap-1.5 font-medium"><ArmyEmblem army={army} emblems={emblems} size={15} />{army}</span>
+                    <span className="f-disp flex flex-1 items-center gap-1.5 font-medium">
+                      <ArmyEmblem army={army} emblems={emblems} size={15} />
+                      <span className="min-w-0 leading-tight">
+                        <span className="block truncate">{army}</span>
+                        {ar && <span className="block text-[11px] font-semibold text-amber-800" title={ac + " game(s) with this army"}>{ar.title}</span>}
+                      </span>
+                    </span>
                     <span className="w-12 text-center">{s.games}</span>
                     <span className="w-12 text-center font-bold text-green-800">{s.w}</span>
                     <span className="w-12 text-center">{s.d}</span>
                     <span className="w-12 text-center text-red-900">{s.l}</span>
                   </div>
-                ))}
+                  );
+                })}
               </Card>
             )}
 
@@ -1069,7 +1122,7 @@ function HomeTab({ ctx, go }) {
 
   const ladder = computeStandings(reports);
   const shame = shameBoard(reports);
-  const games = gamesPlayedMap(reports);
+  const armyGames = gamesByArmyMap(reports, users);
   const currentChamp = champions.find((c) => c.isCurrent) || null;
   const pastChamps = champions.filter((c) => !c.isCurrent).sort((a, b) => (b.awardedAt || 0) - (a.awardedAt || 0));
   const upcoming = [...fixtures]
@@ -1319,7 +1372,7 @@ function HomeTab({ ctx, go }) {
         </H>
         <Card className="divide-y divide-stone-200">
           {Object.entries(users).map(([key, u]) => {
-            const rk = rankFor(u.faction, games[u.name] || 0);
+            const rk = headlineRankFor(u, armyGames[u.name]);
             const isChamp = currentChamp && currentChamp.member === u.name;
             return (
               <div key={key} className="flex items-center justify-between px-3 py-2">
@@ -1330,8 +1383,8 @@ function HomeTab({ ctx, go }) {
                     {u.isAdmin && <Gavel size={10} className="shrink-0 text-stone-400" title="Grand Marshal (admin)" />}
                     <HonourBadges items={honours.filter((h) => h.member === u.name)} size={11} />
                   </p>
-                  <p className="text-[11px] italic text-stone-500" title={rk.isMax ? "Top rank reached" : rk.toNext + " more game(s) to " + (RANK_TITLES[u.faction] || RANK_TITLES["The Empire"])[rk.tier]}>
-                    {rk.title} · {u.faction}
+                  <p className="text-[11px] italic text-stone-500" title={rk.isMax ? "Top rank reached" : rk.toNext + " more " + rk.army + " game(s) to " + (RANK_TITLES[rk.army] || RANK_TITLES["The Empire"])[rk.tier]}>
+                    {rk.title} · {rk.army}
                   </p>
                 </div>
               </div>
@@ -2366,9 +2419,10 @@ function FaqTab({ ctx }) {
           turning up and rolling dice. Every battle you file counts as a game played: win or lose, draw, or even a <span className="italic">casual</span> bout.
         </p>
         <ul className="mt-2 space-y-1 text-sm text-stone-700">
-          <li>There are <span className="f-disp font-bold text-red-900">ten ranks</span>. You begin at the bottom and rise as your tally of games grows.</li>
-          <li>Each army climbs its <span className="font-bold">own ladder of titles</span>, themed to its lore — an Empire general rises from Stableboy to Lord-General of the Empire; a Dwarf from Beardling to King under the Mountain.</li>
-          <li>Switch armies and you <span className="font-bold">keep your standing</span>, but take up your new army's titles.</li>
+          <li>There are <span className="f-disp font-bold text-red-900">ten ranks</span>, and every army has its own. You begin at the bottom and climb as your games with that army mount.</li>
+          <li>Each ladder is themed to its army's lore — an Empire general rises from Stableboy to Lord-General of the Empire; a Dwarf from Beardling to King under the Mountain.</li>
+          <li>Your ranks build <span className="font-bold">separately</span> — ten battles with the Empire and twenty with the Dwarfs earns a different rank in each.</li>
+          <li>Your headline rank is the army you've <span className="font-bold">set as your own</span>; not yet fielded it, and your most-fought army stands in until you do.</li>
           <li>Your rank — and how many games to the next — shows on your profile and the Muster Roll.</li>
         </ul>
         <div className="mt-3 rounded-sm border border-amber-700/40 bg-white/60 p-3">

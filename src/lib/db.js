@@ -47,7 +47,10 @@ const fromChampion = (r) => ({
 });
 const fromPhoto = (r) => ({
   id: r.id, caption: r.caption, uploader: r.uploader, kind: r.kind,
-  votes: r.votes || [], storagePath: r.storage_path, created: ts(r.created_at),
+  votes: r.votes || [], comments: r.comments || [], storagePath: r.storage_path, created: ts(r.created_at),
+});
+const fromLaurel = (r) => ({
+  id: r.id, competition: r.competition, winner: r.winner, year: r.year, note: r.note, created: ts(r.created_at),
 });
 const fromHonour = (r) => ({
   id: r.id, member: r.member, category: r.category, title: r.title,
@@ -160,6 +163,7 @@ export const db = {
       return supabase.from("photos").insert({ caption, uploader, kind, storage_path: path, votes: [] });
     },
     setVotes: (id, votes) => supabase.from("photos").update({ votes }).eq("id", id),
+    setComments: (id, comments) => supabase.from("photos").update({ comments }).eq("id", id),
     remove: async (photo) => {
       if (photo.storagePath) await supabase.storage.from(PHOTO_BUCKET).remove([photo.storagePath]);
       return supabase.from("photos").delete().eq("id", photo.id);
@@ -194,8 +198,17 @@ export const db = {
     },
     remove: (army) => supabase.from("army_emblems").delete().eq("army", army),
   },
+  laurels: {
+    list: () => list("laurels", fromLaurel),
+    add: (l) => supabase.from("laurels").insert({
+      competition: l.competition, winner: l.winner, year: l.year || null, note: l.note || null,
+    }),
+    remove: (id) => supabase.from("laurels").delete().eq("id", id),
+  },
   profiles: {
     update: (id, patch) => supabase.from("profiles").update(patch).eq("id", id),
+    setAdmin: (id, isAdmin) => supabase.from("profiles").update({ is_admin: isAdmin }).eq("id", id),
+    remove: (id) => supabase.rpc("admin_delete_member", { target: id }),
     setImage: async (id, field, dataURL) => {
       const blob = dataURLtoBlob(dataURL);
       const path = (field === "mascot_path" ? "mascot" : "avatar") + "/" + id + "-" + Date.now() + ".jpg";

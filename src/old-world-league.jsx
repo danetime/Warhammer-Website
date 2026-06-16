@@ -3,7 +3,8 @@ import { Routes, Route, useNavigate, useParams, Link } from "react-router-dom";
 import {
   Swords, Trophy, Scroll, Camera, HelpCircle, Beer, Crown, Plus, Trash2,
   Pencil, LogOut, Upload, ThumbsUp, ThumbsDown, X, Shield, Skull, CalendarDays, Save,
-  BookOpen, Link as LinkIcon, ChevronRight, Gavel, Award, Medal, Star, Utensils, ArrowLeft, Menu, Settings
+  BookOpen, Link as LinkIcon, ChevronRight, Gavel, Award, Medal, Star, Utensils, ArrowLeft, Menu, Settings,
+  Download, UserX, MessageSquare
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 import { db, photoUrl, emblemUrl, avatarUrl } from "./lib/db";
@@ -532,6 +533,7 @@ export default function App() {
   const [honours, setHonours] = useState([]);
   const [availability, setAvailability] = useState([]);
   const [emblems, setEmblems] = useState([]);
+  const [laurels, setLaurels] = useState([]);
 
   const refreshUsers = async () => {
     const us = await loadProfiles();
@@ -550,14 +552,16 @@ export default function App() {
     // Load all data (incl. the roster) independently of auth, then boot.
     (async () => {
       try {
-        const [us, fx, rp, qt, fq, rl, pg, px, pr, ch, hn, av, em] = await Promise.all([
+        const [us, fx, rp, qt, fq, rl, pg, px, pr, ch, hn, av, em, lr] = await Promise.all([
           loadProfiles(), db.fixtures.list(), db.reports.list(), db.quotes.list(), db.faqs.list(),
           db.rules.list(), db.pages.list(), db.photos.list(), db.proposals.list(),
           db.champions.list(), db.honours.list(), db.availability.list(), db.emblems.list(),
+          db.laurels.list(),
         ]);
         setUsers(us); setFixtures(fx); setReports(rp); setQuotes(qt);
         setFaq(fq); setRules(rl); setPages(pg); setPhotosIdx(px);
         setProposals(pr); setChampions(ch); setHonours(hn); setAvailability(av); setEmblems(em);
+        setLaurels(lr);
       } catch (e) { console.error("boot (data) failed", e); }
       finish();
     })();
@@ -593,6 +597,7 @@ export default function App() {
     honours: async () => setHonours(await db.honours.list()),
     availability: async () => setAvailability(await db.availability.list()),
     emblems: async () => setEmblems(await db.emblems.list()),
+    laurels: async () => setLaurels(await db.laurels.list()),
   };
 
   const logout = async () => { await supabase.auth.signOut(); setUser(null); };
@@ -607,7 +612,7 @@ export default function App() {
   if (!user) return <LoginGate users={users} onAuthed={setUser} refreshUsers={refreshUsers} />;
 
   const memberNames = Object.values(users).map((u) => u.name);
-  const ctx = { user, users, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, honours, availability, emblems, db, reload, refreshUsers, refreshUser, logout };
+  const ctx = { user, users, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, honours, availability, emblems, laurels, db, reload, refreshUsers, refreshUser, logout };
 
   return (
     <ErrorBoundary>
@@ -630,11 +635,13 @@ function Hub({ ctx }) {
     { id: "home", label: "Town Square", icon: Beer },
     { id: "league", label: "League", icon: Trophy },
     { id: "cup", label: "Grand Tourney", icon: Crown },
+    { id: "fame", label: "Hall of Fame", icon: Medal },
     { id: "council", label: "Council", icon: Gavel },
     { id: "battles", label: "Battles", icon: Swords },
     { id: "gallery", label: "Gallery", icon: Camera },
     { id: "rules", label: "Library", icon: BookOpen },
     { id: "faq", label: "Herald", icon: HelpCircle },
+    ...(user.isAdmin ? [{ id: "admin", label: "Admin", icon: Settings }] : []),
   ];
   const cur = tabs.find((t) => t.id === tab) || tabs[0];
   const CurIcon = cur.icon;
@@ -695,11 +702,13 @@ function Hub({ ctx }) {
         {tab === "home" && <HomeTab ctx={ctx} go={setTab} />}
         {tab === "league" && <PagesTab ctx={ctx} kind="league" />}
         {tab === "cup" && <PagesTab ctx={ctx} kind="cup" />}
+        {tab === "fame" && <FameTab ctx={ctx} />}
         {tab === "council" && <CouncilTab ctx={ctx} />}
         {tab === "battles" && <BattlesTab ctx={ctx} />}
         {tab === "gallery" && <GalleryTab ctx={ctx} />}
         {tab === "rules" && <RulesTab ctx={ctx} />}
         {tab === "faq" && <FaqTab ctx={ctx} />}
+        {tab === "admin" && user.isAdmin && <AdminTab ctx={ctx} />}
       </main>
       <footer className="border-t border-stone-300 py-4 text-center">
         <p className="f-disp text-[10px] uppercase tracking-widest text-stone-400">
@@ -1042,6 +1051,7 @@ function HomeTab({ ctx, go }) {
   const [newQuote, setNewQuote] = useState("");
   const [saidBy, setSaidBy] = useState("");
   const [thumbs, setThumbs] = useState({});
+  const [lbId, setLbId] = useState(null);
   const [showAward, setShowAward] = useState(false);
   const [awardWho, setAwardWho] = useState("");
   const [awardSeason, setAwardSeason] = useState("");
@@ -1061,6 +1071,7 @@ function HomeTab({ ctx, go }) {
     .sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"))
     .slice(0, 3);
   const recentPhotos = [...photosIdx].sort((a, b) => b.created - a.created).slice(0, 2);
+  const lb = lbId ? photosIdx.find((p) => p.id === lbId) : null;
   const recentQuotes = [...quotes].sort((a, b) => b.created - a.created).slice(0, 4);
   const openCalls = [...availability]
     .filter((a) => !a.date || a.date >= today())
@@ -1087,11 +1098,14 @@ function HomeTab({ ctx, go }) {
     await db.quotes.remove(q.id);
     await reload.quotes();
   };
-  const toggleAdmin = async (id) => {
-    const target = users[id];
-    if (!target) return;
-    await supabase.from("profiles").update({ is_admin: !target.isAdmin }).eq("id", id);
-    await refreshUsers();
+  const addComment = async (p, text) => {
+    const next = [...(p.comments || []), { id: uid(), by: user.name, text, at: Date.now() }];
+    await db.photos.setComments(p.id, next);
+    await reload.photosIdx();
+  };
+  const delComment = async (p, cid) => {
+    await db.photos.setComments(p.id, (p.comments || []).filter((c) => c.id !== cid));
+    await reload.photosIdx();
   };
 
   const awardChampion = async () => {
@@ -1234,10 +1248,17 @@ function HomeTab({ ctx, go }) {
           <div className="grid grid-cols-2 gap-3">
             {recentPhotos.map((p) => (
               <Card key={p.id} className="overflow-hidden">
-                {thumbs[p.id]
-                  ? <img src={thumbs[p.id]} alt={p.caption || "League photo"} className="h-40 w-full object-cover" />
-                  : <div className="flex h-40 items-center justify-center text-xs text-stone-400">Loading…</div>}
-                <p className="truncate px-3 py-2 text-xs italic text-stone-600">{p.caption || "Untitled"} — {p.uploader}</p>
+                <button className="block w-full" onClick={() => setLbId(p.id)}>
+                  {thumbs[p.id]
+                    ? <img src={thumbs[p.id]} alt={p.caption || "League photo"} className="h-40 w-full object-cover" />
+                    : <div className="flex h-40 items-center justify-center text-xs text-stone-400">Loading…</div>}
+                </button>
+                <div className="flex items-center justify-between gap-2 px-3 py-2">
+                  <p className="truncate text-xs italic text-stone-600">{p.caption || "Untitled"} — {p.uploader}</p>
+                  <button onClick={() => setLbId(p.id)} className="flex shrink-0 items-center gap-0.5 text-[11px] text-stone-500 hover:text-red-900" title="Comments">
+                    <MessageSquare size={11} /> {(p.comments || []).length}
+                  </button>
+                </div>
               </Card>
             ))}
           </div>
@@ -1306,9 +1327,6 @@ function HomeTab({ ctx, go }) {
                     {rk.title} · {u.faction}
                   </p>
                 </div>
-                {user.isAdmin && u.name !== user.name && (
-                  <B small kind="ghost" onClick={() => toggleAdmin(key)}>{u.isAdmin ? "Demote" : "Promote"}</B>
-                )}
               </div>
             );
           })}
@@ -1378,6 +1396,17 @@ function HomeTab({ ctx, go }) {
             <B onClick={postAvail}><Plus size={14} /> Post availability</B>
           </div>
         </Modal>
+      )}
+
+      {lb && (
+        <PhotoLightbox
+          photo={lb}
+          src={thumbs[lb.id] || photoUrl(lb.storagePath)}
+          user={user}
+          onClose={() => setLbId(null)}
+          onComment={addComment}
+          onDelComment={delComment}
+        />
       )}
     </div>
   );
@@ -2051,8 +2080,9 @@ function GalleryTab({ ctx }) {
   const [caption, setCaption] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [lightbox, setLightbox] = useState(null);
+  const [lbId, setLbId] = useState(null);
   const fileRef = useRef(null);
+  const lb = lbId ? photosIdx.find((p) => p.id === lbId) : null;
 
   const shown = [...photosIdx].filter((p) => p.kind === view).sort((a, b) => b.created - a.created);
 
@@ -2090,6 +2120,15 @@ function GalleryTab({ ctx }) {
     const votes = p.votes || [];
     const next = votes.includes(user.name) ? votes.filter((v) => v !== user.name) : [...votes, user.name];
     await db.photos.setVotes(p.id, next);
+    await reload.photosIdx();
+  };
+  const addComment = async (p, text) => {
+    const next = [...(p.comments || []), { id: uid(), by: user.name, text, at: Date.now() }];
+    await db.photos.setComments(p.id, next);
+    await reload.photosIdx();
+  };
+  const delComment = async (p, cid) => {
+    await db.photos.setComments(p.id, (p.comments || []).filter((c) => c.id !== cid));
     await reload.photosIdx();
   };
 
@@ -2138,7 +2177,7 @@ function GalleryTab({ ctx }) {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {shown.map((p) => (
             <Card key={p.id} className="group overflow-hidden">
-              <button className="block w-full" onClick={() => setLightbox(p)}>
+              <button className="block w-full" onClick={() => setLbId(p.id)}>
                 {images[p.id]
                   ? <img src={images[p.id]} alt={p.caption || "League photo"} className="h-40 w-full object-cover sm:h-48" />
                   : <div className="flex h-40 items-center justify-center text-xs text-stone-400 sm:h-48">Loading…</div>}
@@ -2149,6 +2188,9 @@ function GalleryTab({ ctx }) {
                   <p className="text-[10px] italic text-stone-500">{p.uploader}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
+                  <button onClick={() => setLbId(p.id)} className="flex items-center gap-0.5 text-xs text-stone-500 hover:text-red-900" title="Comments">
+                    <MessageSquare size={12} /> {(p.comments || []).length}
+                  </button>
                   {view === "painting" && (
                     <button onClick={() => toggleVote(p)}
                       className={"flex items-center gap-0.5 text-xs " + ((p.votes || []).includes(user.name) ? "font-bold text-red-900" : "text-stone-500 hover:text-red-900")}>
@@ -2165,15 +2207,16 @@ function GalleryTab({ ctx }) {
         </div>
       )}
 
-      {lightbox && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/90 p-4" onClick={() => setLightbox(null)}>
-          <div className="max-h-full max-w-3xl">
-            {images[lightbox.id] && <img src={images[lightbox.id]} alt={lightbox.caption || ""} className="max-h-[80vh] w-auto rounded-sm" />}
-            <p className="f-disp mt-2 text-center text-sm text-amber-100">
-              {lightbox.caption || "Untitled"} — {lightbox.uploader}
-            </p>
-          </div>
-        </div>
+      {lb && (
+        <PhotoLightbox
+          photo={lb}
+          src={images[lb.id] || photoUrl(lb.storagePath)}
+          user={user}
+          onClose={() => setLbId(null)}
+          onComment={addComment}
+          onDelComment={delComment}
+          onVote={lb.kind === "painting" ? toggleVote : undefined}
+        />
       )}
     </div>
   );
@@ -2535,6 +2578,269 @@ function CouncilTab({ ctx }) {
           </div>
         </Modal>
       )}
+    </div>
+  );
+}
+
+/* ============================================================
+   PHOTO LIGHTBOX — enlarge a photo + comments (shared)
+   ============================================================ */
+function PhotoLightbox({ photo, src, user, onClose, onComment, onDelComment, onVote }) {
+  const [text, setText] = useState("");
+  const comments = photo.comments || [];
+  const submit = async () => {
+    const t = text.trim();
+    if (!t) return;
+    setText("");
+    await onComment(photo, t);
+  };
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/90 p-4" onClick={onClose}>
+      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-sm border border-amber-800/40 bg-stone-900 shadow-xl"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between gap-2 border-b border-stone-700 px-3 py-2">
+          <div className="min-w-0">
+            <p className="f-disp truncate text-sm font-bold text-amber-100">{photo.caption || "Untitled"}</p>
+            <p className="truncate text-[11px] italic text-stone-400">{photo.uploader}</p>
+          </div>
+          <button onClick={onClose} className="shrink-0 text-stone-400 hover:text-amber-200"><X size={18} /></button>
+        </div>
+        {src && <img src={src} alt={photo.caption || ""} className="max-h-[50vh] w-full bg-black object-contain" />}
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
+          <div className="flex items-center justify-between">
+            <p className="f-disp text-[11px] font-bold uppercase tracking-widest text-stone-400">Comments</p>
+            {onVote && (
+              <button onClick={() => onVote(photo)}
+                className={"flex items-center gap-1 text-xs " + ((photo.votes || []).includes(user.name) ? "font-bold text-amber-300" : "text-stone-400 hover:text-amber-200")}>
+                <ThumbsUp size={13} /> {(photo.votes || []).length}
+              </button>
+            )}
+          </div>
+          {comments.length === 0 ? (
+            <p className="text-xs italic text-stone-500">No comments yet. Be the first to weigh in.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {comments.map((c) => (
+                <div key={c.id} className="flex items-start justify-between gap-2">
+                  <p className="text-sm text-stone-200"><span className="f-disp font-bold text-amber-200">{c.by}</span> {c.text}</p>
+                  {(c.by === user.name || user.isAdmin) && (
+                    <button onClick={() => onDelComment(photo, c.id)} className="shrink-0 text-stone-500 hover:text-red-400"><X size={12} /></button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="mt-1 flex gap-2">
+            <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()}
+              placeholder="Add a comment…" className="field flex-1 rounded-sm border border-amber-800/40 px-2 py-1.5 text-sm" />
+            <B small kind="gold" onClick={submit}>Post</B>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   HALL OF FAME — past champions & cup winners (admin-managed)
+   ============================================================ */
+function FameTab({ ctx }) {
+  const { user, laurels, pages, memberNames, db, reload } = ctx;
+  const navigate = useNavigate();
+  const CHAMP = "Champion of the Old World";
+  const [show, setShow] = useState(false);
+  const [draft, setDraft] = useState({ competition: CHAMP, customComp: "", winner: "", year: "", note: "" });
+
+  const compOptions = [CHAMP, ...pages.filter((p) => p.kind === "cup").map((p) => p.title), ...pages.filter((p) => p.kind === "league").map((p) => p.title)];
+
+  const add = async () => {
+    const competition = draft.competition === "__custom" ? draft.customComp.trim() : draft.competition;
+    if (!competition || !draft.winner.trim()) return;
+    await db.laurels.add({ competition, winner: draft.winner.trim(), year: draft.year.trim(), note: draft.note.trim() });
+    await reload.laurels();
+    setDraft({ competition: CHAMP, customComp: "", winner: "", year: "", note: "" });
+    setShow(false);
+  };
+  const del = async (l) => {
+    if (!user.isAdmin) return;
+    if (!confirm("Remove this entry from the Hall of Fame?")) return;
+    await db.laurels.remove(l.id);
+    await reload.laurels();
+  };
+
+  const groups = {};
+  for (const l of laurels) (groups[l.competition] = groups[l.competition] || []).push(l);
+  const comps = Object.keys(groups).sort((a, b) => (a === CHAMP ? -1 : b === CHAMP ? 1 : a.localeCompare(b)));
+  const linkFor = (name) => (memberNames || []).find((n) => n.toLowerCase() === (name || "").toLowerCase());
+
+  return (
+    <div>
+      <H icon={Medal} right={user.isAdmin && <B small kind="gold" onClick={() => setShow(true)}><Plus size={12} /> Record a winner</B>}>
+        The Hall of Fame
+      </H>
+      <p className="mb-5 max-w-2xl text-sm italic text-stone-600">
+        The enshrined victors of seasons past — champions of the league and winners of the great tournaments.
+      </p>
+
+      {laurels.length === 0 ? (
+        <Empty>{user.isAdmin ? "No laurels recorded yet. Enshrine the first champion." : "The halls await their first hero."}</Empty>
+      ) : (
+        <div className="grid gap-5 sm:grid-cols-2">
+          {comps.map((comp) => {
+            const rows = [...groups[comp]].sort((a, b) => (b.year || "").localeCompare(a.year || "") || b.created - a.created);
+            return (
+              <Card key={comp} className="overflow-hidden">
+                <div className="flex items-center gap-2 border-b border-stone-300 bg-stone-900 px-4 py-2.5">
+                  <Crown size={14} className="shrink-0 text-amber-400" />
+                  <h3 className="f-disp text-sm font-bold uppercase tracking-wide text-amber-200">{comp}</h3>
+                </div>
+                <div className="divide-y divide-stone-200">
+                  {rows.map((l) => {
+                    const m = linkFor(l.winner);
+                    return (
+                      <div key={l.id} className="flex items-center justify-between gap-2 px-4 py-2">
+                        <div className="min-w-0">
+                          <p className="f-disp text-sm font-bold">
+                            {m
+                              ? <button onClick={() => navigate("/member/" + encodeURIComponent(m))} className="text-left hover:text-red-900 hover:underline">{l.winner}</button>
+                              : l.winner}
+                          </p>
+                          {l.note && <p className="text-[11px] italic text-stone-500">{l.note}</p>}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          {l.year && <span className="f-disp text-xs font-bold uppercase tracking-wide text-amber-800">{l.year}</span>}
+                          {user.isAdmin && <button onClick={() => del(l)} className="text-stone-400 hover:text-red-800"><Trash2 size={13} /></button>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {show && (
+        <Modal title="Record a winner" onClose={() => setShow(false)}>
+          <div className="space-y-3">
+            <div>
+              <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Trophy / competition</p>
+              <Sel value={draft.competition} onChange={(e) => setDraft({ ...draft, competition: e.target.value })}>
+                {compOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                <option value="__custom">Custom…</option>
+              </Sel>
+            </div>
+            {draft.competition === "__custom" && (
+              <Inp placeholder="Competition name" value={draft.customComp} onChange={(e) => setDraft({ ...draft, customComp: e.target.value })} />
+            )}
+            <div>
+              <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Winner</p>
+              <Inp list="fame-members" placeholder="Winner's name" value={draft.winner} onChange={(e) => setDraft({ ...draft, winner: e.target.value })} />
+              <datalist id="fame-members">{(memberNames || []).map((n) => <option key={n} value={n} />)}</datalist>
+            </div>
+            <Inp placeholder="Year / season (e.g. 2526, or Spring 2025)" value={draft.year} onChange={(e) => setDraft({ ...draft, year: e.target.value })} />
+            <Inp placeholder="Note (optional, e.g. beat Dane in the final)" value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value })} />
+            <B kind="gold" onClick={add}><Medal size={14} /> Enshrine</B>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   ADMIN — the Grand Marshal's chambers (admins only)
+   ============================================================ */
+function AdminTab({ ctx }) {
+  const { user, users, fixtures, reports, pages, proposals, champions, laurels, honours, availability, quotes, faq, rules, photosIdx, emblems, db, refreshUsers } = ctx;
+  const navigate = useNavigate();
+  const [showEmblems, setShowEmblems] = useState(false);
+  const [busy, setBusy] = useState("");
+
+  if (!user.isAdmin) return <Empty>The Grand Marshal's chambers are barred to you.</Empty>;
+
+  const setArmy = async (id, faction) => { await db.profiles.update(id, { faction }); await refreshUsers(); };
+  const toggleAdmin = async (id, val) => { await db.profiles.setAdmin(id, val); await refreshUsers(); };
+  const removeMember = async (id, name) => {
+    if (!confirm("Remove " + name + " entirely?\n\nTheir account and profile are deleted. Their battle history stays in the records. This cannot be undone.")) return;
+    setBusy(id);
+    const res = await db.profiles.remove(id);
+    if (res && res.error) alert("Could not remove member: " + (res.error.message || "unknown error"));
+    await refreshUsers();
+    setBusy("");
+  };
+
+  const exportData = () => {
+    const dump = {
+      exportedAt: new Date().toISOString(),
+      members: Object.values(users), fixtures, battleReports: reports, pages, proposals,
+      champions, laurels, honours, availability, quotes, faqs: faq, library: rules,
+      photos: photosIdx, emblems,
+    };
+    const blob = new Blob([JSON.stringify(dump, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "old-world-league-backup-" + today() + ".json"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const stat = (label, n) => (
+    <div className="rounded-sm border border-stone-300 bg-white/60 px-3 py-2 text-center">
+      <p className="f-black text-2xl leading-none text-red-950">{n}</p>
+      <p className="f-disp mt-1 text-[10px] uppercase tracking-wide text-stone-500">{label}</p>
+    </div>
+  );
+
+  const memberList = Object.entries(users);
+
+  return (
+    <div>
+      <H icon={Settings}>The Grand Marshal's Chambers</H>
+      <p className="mb-5 max-w-2xl text-sm italic text-stone-600">Controls reserved for the Grand Marshal. Tread carefully.</p>
+
+      <div className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {stat("Members", memberList.length)}
+        {stat("Battles filed", reports.length)}
+        {stat("Leagues & cups", pages.length)}
+        {stat("Photos", photosIdx.length)}
+      </div>
+
+      <H icon={Shield}>Members</H>
+      <Card className="divide-y divide-stone-200">
+        {memberList.map(([id, u]) => (
+          <div key={id} className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+            <p className="f-disp flex items-center gap-1.5 text-sm font-bold">
+              <button onClick={() => navigate("/member/" + encodeURIComponent(u.name))} className="truncate text-left hover:text-red-900 hover:underline">{u.name}</button>
+              {u.isAdmin && <Gavel size={11} className="shrink-0 text-amber-700" title="Grand Marshal" />}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <select value={u.faction} onChange={(e) => setArmy(id, e.target.value)} title="Set this member's army"
+                className="f-body rounded-sm border border-stone-300 bg-white px-1.5 py-1 text-xs">
+                {ARMIES.map((a) => <option key={a}>{a}</option>)}
+              </select>
+              {u.name !== user.name && (
+                <>
+                  <B small kind="ghost" onClick={() => toggleAdmin(id, !u.isAdmin)}>{u.isAdmin ? "Demote" : "Promote"}</B>
+                  <button onClick={() => removeMember(id, u.name)} disabled={busy === id}
+                    className="inline-flex items-center gap-1 rounded-sm border border-red-300 px-2 py-1 text-xs text-red-800 hover:bg-red-50 disabled:opacity-50">
+                    <UserX size={12} /> {busy === id ? "Removing…" : "Remove"}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        ))}
+      </Card>
+
+      <H icon={Award}>Tools</H>
+      <div className="flex flex-wrap gap-2">
+        <B kind="ghost" onClick={() => setShowEmblems(true)}><Shield size={14} /> Army emblems</B>
+        <B kind="ghost" onClick={exportData}><Download size={14} /> Backup / export data</B>
+      </div>
+      <p className="mt-2 text-[11px] italic text-stone-500">The backup is a JSON snapshot (no photo images) you can keep off-site.</p>
+
+      {showEmblems && <EmblemManager ctx={ctx} onClose={() => setShowEmblems(false)} />}
     </div>
   );
 }

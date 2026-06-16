@@ -83,6 +83,9 @@ supabase/
   avatars.sql            Profile avatar/mascot columns + storage bucket
   rename.sql             rename_member() — rename a member, carrying history
   rounds.sql             round number on fixtures (round-robin scheduling)
+  hall-of-fame.sql       laurels table — past champions & cup winners (admin)
+  photo-comments.sql     comments column on photos (members comment on the gallery)
+  admin.sql              admin_delete_member() — remove a member (account + profile)
 tailwind.config.js
 postcss.config.js
 vite.config.js

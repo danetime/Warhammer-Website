@@ -3,7 +3,7 @@ import { Routes, Route, useNavigate, useParams, Link } from "react-router-dom";
 import {
   Swords, Trophy, Scroll, Camera, HelpCircle, Beer, Crown, Plus, Trash2,
   Pencil, LogOut, Upload, ThumbsUp, ThumbsDown, X, Shield, Skull, CalendarDays, Save,
-  BookOpen, Link as LinkIcon, ChevronRight, Gavel, Award, Medal, Star, Utensils, ArrowLeft
+  BookOpen, Link as LinkIcon, ChevronRight, Gavel, Award, Medal, Star, Utensils, ArrowLeft, Menu
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 import { db, photoUrl, emblemUrl, avatarUrl } from "./lib/db";
@@ -599,6 +599,7 @@ export default function App() {
 function Hub({ ctx }) {
   const { user, logout } = ctx;
   const [tab, setTab] = useState("home");
+  const [menuOpen, setMenuOpen] = useState(false);
   const tabs = [
     { id: "home", label: "Town Square", icon: Beer },
     { id: "league", label: "League", icon: Trophy },
@@ -609,6 +610,9 @@ function Hub({ ctx }) {
     { id: "rules", label: "Library", icon: BookOpen },
     { id: "faq", label: "Herald", icon: HelpCircle },
   ];
+  const cur = tabs.find((t) => t.id === tab) || tabs[0];
+  const CurIcon = cur.icon;
+  const pick = (id) => { setTab(id); setMenuOpen(false); };
 
   return (
     <div className="parchment f-body min-h-screen text-stone-900">
@@ -632,14 +636,32 @@ function Hub({ ctx }) {
               </button>
             </div>
           </div>
-          <nav className="mt-3 flex gap-1 overflow-x-auto pb-1">
-            {tabs.map((t) => (
-              <button key={t.id} onClick={() => setTab(t.id)}
-                className={"f-disp flex shrink-0 items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs uppercase tracking-wide transition-colors " +
-                  (tab === t.id ? "bg-amber-600 text-stone-900" : "text-amber-100/80 hover:bg-stone-800")}>
-                <t.icon size={13} /> {t.label}
-              </button>
-            ))}
+          <nav className="mt-3">
+            <button onClick={() => setMenuOpen((o) => !o)}
+              className="f-disp flex w-full items-center justify-between rounded-sm bg-stone-800 px-3 py-2 text-xs uppercase tracking-wide text-amber-100 sm:hidden">
+              <span className="flex items-center gap-1.5"><CurIcon size={14} /> {cur.label}</span>
+              {menuOpen ? <X size={16} /> : <Menu size={16} />}
+            </button>
+            {menuOpen && (
+              <div className="mt-1 grid grid-cols-2 gap-1 sm:hidden">
+                {tabs.map((t) => (
+                  <button key={t.id} onClick={() => pick(t.id)}
+                    className={"f-disp flex items-center gap-1.5 rounded-sm px-3 py-2 text-xs uppercase tracking-wide " +
+                      (tab === t.id ? "bg-amber-600 text-stone-900" : "bg-stone-800 text-amber-100/80 hover:bg-stone-700")}>
+                    <t.icon size={13} /> {t.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="hidden gap-1 overflow-x-auto pb-1 sm:flex">
+              {tabs.map((t) => (
+                <button key={t.id} onClick={() => pick(t.id)}
+                  className={"f-disp flex shrink-0 items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs uppercase tracking-wide transition-colors " +
+                    (tab === t.id ? "bg-amber-600 text-stone-900" : "text-amber-100/80 hover:bg-stone-800")}>
+                  <t.icon size={13} /> {t.label}
+                </button>
+              ))}
+            </div>
           </nav>
         </div>
       </header>

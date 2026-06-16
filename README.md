@@ -113,6 +113,9 @@ supabase/
   settings.sql           key/value site settings (editable name + next gathering)
   email-prefs.sql        per-member email opt-out (profiles.email_prefs)
 BACKLOG.md               Feature list & backlog (deferred ideas, tech debt)
+docs/
+  build-guide.py         Generates the field-manual PDF (needs `pip install reportlab`)
+  old-world-league-guide.pdf  Members' how-to-use guide
 tailwind.config.js
 postcss.config.js
 vite.config.js

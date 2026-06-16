@@ -434,7 +434,7 @@ const HonourBadges = ({ items, size = 12 }) =>
    LOGIN GATE
    First soul to register becomes Grand Marshal (admin).
    ============================================================ */
-function LoginGate({ users, onAuthed, refreshUsers }) {
+function LoginGate({ users, siteName, onAuthed, refreshUsers }) {
   const [mode, setMode] = useState("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -490,7 +490,7 @@ function LoginGate({ users, onAuthed, refreshUsers }) {
       <div className="w-full max-w-md">
         <div className="mb-6 text-center">
           <Shield size={40} className="mx-auto mb-2 text-red-900" />
-          <h1 className="f-black text-5xl font-bold text-red-950">The Old World League</h1>
+          <h1 className="f-black text-5xl font-bold text-red-950">{siteName || "The Old World League"}</h1>
           <p className="f-disp mt-1 text-xs uppercase tracking-widest text-amber-800">
             Warhammer Fantasy · Seventh Edition · Members Only
           </p>
@@ -657,7 +657,7 @@ export default function App() {
       </div>
     );
   }
-  if (!user) return <LoginGate users={users} onAuthed={setUser} refreshUsers={refreshUsers} />;
+  if (!user) return <LoginGate users={users} siteName={siteName} onAuthed={setUser} refreshUsers={refreshUsers} />;
 
   const memberNames = Object.values(users).map((u) => u.name);
   const ctx = { user, users, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, honours, availability, emblems, laurels, settings, siteName, db, reload, refreshUsers, refreshUser, logout };

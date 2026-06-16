@@ -787,6 +787,11 @@ function ProfilePage({ ctx }) {
       if (!res.error) await refreshUsers();
     } catch (e) { /* ignore */ }
   };
+  const removeImg = async (field) => {
+    if (!member) return;
+    await db.profiles.update(member.id, { [field]: null });
+    await refreshUsers();
+  };
   const saveProfile = async () => {
     if (!member) return;
     if (editArmy && editArmy !== member.faction) await db.profiles.update(member.id, { faction: editArmy });
@@ -831,18 +836,12 @@ function ProfilePage({ ctx }) {
                 {avatarSrc
                   ? <img src={avatarSrc} alt="" className="h-28 w-28 rounded-sm border-2 border-amber-700 object-cover shadow-sm" />
                   : <div className="flex h-28 w-28 items-center justify-center rounded-sm border-2 border-amber-700 bg-stone-200 text-stone-400"><Shield size={40} /></div>}
-                {canEdit
-                  ? <label className="f-disp cursor-pointer text-[10px] uppercase tracking-wide text-stone-500 hover:text-red-900">Avatar<input type="file" accept="image/*" className="hidden" onChange={(e) => uploadImg("avatar_path", e.target.files && e.target.files[0])} /></label>
-                  : <span className="f-disp text-[10px] uppercase tracking-wide text-stone-400">Avatar</span>}
+                <span className="f-disp text-[10px] uppercase tracking-wide text-stone-400">Avatar</span>
               </div>
-              {(mascotSrc || canEdit) && (
+              {mascotSrc && (
                 <div className="flex flex-col items-center gap-1">
-                  {mascotSrc
-                    ? <img src={mascotSrc} alt="Noble Steed" className="h-20 w-20 rounded-sm border-2 border-amber-700 object-cover shadow-sm" />
-                    : <div className="flex h-20 w-20 items-center justify-center rounded-sm border-2 border-dashed border-amber-700/60 bg-stone-100 text-stone-400"><Camera size={22} /></div>}
-                  {canEdit
-                    ? <label className="f-disp cursor-pointer text-[10px] uppercase tracking-wide text-stone-500 hover:text-red-900">Noble Steed<input type="file" accept="image/*" className="hidden" onChange={(e) => uploadImg("mascot_path", e.target.files && e.target.files[0])} /></label>
-                    : <span className="f-disp text-[10px] uppercase tracking-wide text-stone-400">Noble Steed</span>}
+                  <img src={mascotSrc} alt="Noble Steed" className="h-20 w-20 rounded-sm border-2 border-amber-700 object-cover shadow-sm" />
+                  <span className="f-disp text-[10px] uppercase tracking-wide text-stone-400">Noble Steed</span>
                 </div>
               )}
             </div>
@@ -1000,6 +999,31 @@ function ProfilePage({ ctx }) {
               <Sel value={editArmy} onChange={(e) => setEditArmy(e.target.value)}>
                 {ARMIES.map((a) => <option key={a}>{a}</option>)}
               </Sel>
+            </div>
+            <div>
+              <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Avatar</p>
+              <div className="flex items-center gap-3">
+                {avatarSrc
+                  ? <img src={avatarSrc} alt="" className="h-14 w-14 rounded-sm border-2 border-amber-700 object-cover" />
+                  : <div className="flex h-14 w-14 items-center justify-center rounded-sm border-2 border-amber-700 bg-stone-200 text-stone-400"><Shield size={20} /></div>}
+                <label className="f-disp cursor-pointer rounded-sm border border-stone-300 bg-white/70 px-2 py-1 text-[11px] uppercase tracking-wide text-stone-600 hover:text-red-900">
+                  {avatarSrc ? "Change" : "Upload"}<input type="file" accept="image/*" className="hidden" onChange={(e) => uploadImg("avatar_path", e.target.files && e.target.files[0])} />
+                </label>
+                {avatarSrc && <button onClick={() => removeImg("avatar_path")} className="f-disp text-[11px] uppercase tracking-wide text-stone-400 hover:text-red-800">Remove</button>}
+              </div>
+            </div>
+            <div>
+              <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Noble Steed</p>
+              <p className="f-body mb-1.5 text-[11px] italic text-stone-500">Optional — only shown on your profile if you add one.</p>
+              <div className="flex items-center gap-3">
+                {mascotSrc
+                  ? <img src={mascotSrc} alt="" className="h-14 w-14 rounded-sm border-2 border-amber-700 object-cover" />
+                  : <div className="flex h-14 w-14 items-center justify-center rounded-sm border-2 border-dashed border-amber-700/60 bg-stone-100 text-stone-400"><Camera size={18} /></div>}
+                <label className="f-disp cursor-pointer rounded-sm border border-stone-300 bg-white/70 px-2 py-1 text-[11px] uppercase tracking-wide text-stone-600 hover:text-red-900">
+                  {mascotSrc ? "Change" : "Upload"}<input type="file" accept="image/*" className="hidden" onChange={(e) => uploadImg("mascot_path", e.target.files && e.target.files[0])} />
+                </label>
+                {mascotSrc && <button onClick={() => removeImg("mascot_path")} className="f-disp text-[11px] uppercase tracking-wide text-stone-400 hover:text-red-800">Remove</button>}
+              </div>
             </div>
             <B onClick={saveProfile}><Save size={14} /> Save</B>
           </div>

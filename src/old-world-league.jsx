@@ -735,9 +735,7 @@ function ProfilePage({ ctx }) {
 
   const [showAward, setShowAward] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
-  const [editName, setEditName] = useState("");
   const [editArmy, setEditArmy] = useState("");
-  const [editErr, setEditErr] = useState("");
   const [cat, setCat] = useState("league");
   const [hTitle, setHTitle] = useState("");
   const [hSeason, setHSeason] = useState("");
@@ -766,19 +764,10 @@ function ProfilePage({ ctx }) {
   };
   const saveProfile = async () => {
     if (!member) return;
-    setEditErr("");
-    const nn = editName.trim();
-    if (nn && nn !== member.name) {
-      const { error } = await supabase.rpc("rename_member", { old_name: member.name, new_name: nn });
-      if (error) { setEditErr(error.message || "Could not rename."); return; }
-    }
-    if (editArmy && editArmy !== member.faction) {
-      await db.profiles.update(member.id, { faction: editArmy });
-    }
+    if (editArmy && editArmy !== member.faction) await db.profiles.update(member.id, { faction: editArmy });
     await refreshUsers();
     await refreshUser();
     setShowEdit(false);
-    if (nn && nn !== member.name) navigate("/member/" + encodeURIComponent(nn));
   };
 
   return (
@@ -843,7 +832,7 @@ function ProfilePage({ ctx }) {
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {canEdit && member && (
-                    <button onClick={() => { setEditName(member.name); setEditArmy(member.faction); setEditErr(""); setShowEdit(true); }}
+                    <button onClick={() => { setEditArmy(member.faction); setShowEdit(true); }}
                       className="rounded-sm border border-stone-300 bg-white/70 p-1.5 text-stone-500 hover:text-red-900" title="Edit profile & settings">
                       <Settings size={18} />
                     </button>
@@ -979,19 +968,14 @@ function ProfilePage({ ctx }) {
       )}
 
       {showEdit && (
-        <Modal title="Edit your profile" onClose={() => setShowEdit(false)}>
+        <Modal title="Settings" onClose={() => setShowEdit(false)}>
           <div className="space-y-3">
-            <div>
-              <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Username</p>
-              <Inp value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Your name" />
-            </div>
             <div>
               <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Army you're currently playing</p>
               <Sel value={editArmy} onChange={(e) => setEditArmy(e.target.value)}>
                 {ARMIES.map((a) => <option key={a}>{a}</option>)}
               </Sel>
             </div>
-            {editErr && <p className="text-sm font-medium text-red-800">{editErr}</p>}
             <B onClick={saveProfile}><Save size={14} /> Save</B>
           </div>
         </Modal>
@@ -1031,6 +1015,9 @@ function HomeTab({ ctx, go }) {
   const recentQuotes = [...quotes].sort((a, b) => b.created - a.created).slice(0, 4);
   const openCalls = [...availability]
     .filter((a) => !a.date || a.date >= today())
+    .sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"));
+  const myFixtures = [...fixtures]
+    .filter((f) => (f.playerA === user.name || f.playerB === user.name) && (!f.date || f.date >= today()))
     .sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"));
 
   useEffect(() => {
@@ -1112,6 +1099,26 @@ function HomeTab({ ctx, go }) {
             )}
           </div>
         )}
+        <H icon={CalendarDays}>Your fixtures</H>
+        {myFixtures.length === 0 ? (
+          <Empty>No games scheduled for you yet.</Empty>
+        ) : (
+          <div className="space-y-2">
+            {myFixtures.map((f) => {
+              const opp = f.playerA === user.name ? f.playerB : f.playerA;
+              return (
+                <Card key={f.id} className="flex items-center justify-between gap-3 p-3">
+                  <div className="min-w-0">
+                    <p className="f-disp text-sm font-bold">vs <button onClick={() => navigate("/member/" + encodeURIComponent(opp))} className="hover:text-red-900 hover:underline">{opp}</button></p>
+                    <p className="text-xs italic text-stone-500">{competitionLabel(pages, f)}{f.points ? " · " + f.points + " pts" : ""}{f.scenario ? " · " + f.scenario : ""}</p>
+                  </div>
+                  <p className="f-disp shrink-0 text-xs uppercase tracking-wide text-amber-800">{f.date ? relDay(f.date) : "TBC"}</p>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+
         <H icon={Swords} right={<B small kind="gold" onClick={() => setShowAvail(true)}><Plus size={12} /> I'm available</B>}>
           Calls to Arms
         </H>
@@ -1397,6 +1404,8 @@ function PagesTab({ ctx, kind }) {
   const [showNew, setShowNew] = useState(false);
   const [showEmblems, setShowEmblems] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  const [genPage, setGenPage] = useState(null);
+  const [genPoints, setGenPoints] = useState("1500");
   const isAdmin = user.isAdmin;
   const label = kind === "league" ? "league table" : "tourney bracket";
 
@@ -1427,6 +1436,19 @@ function PagesTab({ ctx, kind }) {
   };
   const updatePage = async (pg) => { await db.pages.update(pg.id, { title: pg.title, rows: pg.rows, info: pg.info || {} }); await reload.pages(); };
   const deletePage = async (id) => { await db.pages.remove(id); await reload.pages(); setEditingId(null); };
+  const generateFixtures = async () => {
+    if (!genPage) return;
+    const names = [];
+    for (const r of (genPage.rows || [])) {
+      const nm = r.member || (memberNames || []).find((n) => n.toLowerCase() === (r.player || "").toLowerCase()) || (r.player || "").trim();
+      if (nm && !names.includes(nm)) names.push(nm);
+    }
+    for (let i = 0; i < names.length; i++)
+      for (let j = i + 1; j < names.length; j++)
+        await db.fixtures.add({ playerA: names[i], playerB: names[j], date: null, points: genPoints, kind: "league", pageId: genPage.id, scenario: "", notes: "" });
+    await reload.fixtures();
+    setGenPage(null);
+  };
 
   return (
     <div>
@@ -1446,16 +1468,32 @@ function PagesTab({ ctx, kind }) {
       )}
       <div className="space-y-6">
         {mine.map((pg) => (
-          <PageBlock key={pg.id} pg={pg} kind={kind} isAdmin={isAdmin}
-            editing={editingId === pg.id}
-            onEdit={() => setEditingId(pg.id)}
-            onDone={() => setEditingId(null)}
-            onChange={updatePage}
-            onDelete={() => deletePage(pg.id)}
-            blankRow={blankRow} emblems={emblems} memberNames={memberNames} />
+          <div key={pg.id}>
+            <PageBlock pg={pg} kind={kind} isAdmin={isAdmin}
+              editing={editingId === pg.id}
+              onEdit={() => setEditingId(pg.id)}
+              onDone={() => setEditingId(null)}
+              onChange={updatePage}
+              onDelete={() => deletePage(pg.id)}
+              blankRow={blankRow} emblems={emblems} memberNames={memberNames} />
+            {kind === "league" && isAdmin && (
+              <div className="mt-1 text-right">
+                <B small kind="ghost" onClick={() => { setGenPage(pg); setGenPoints("1500"); }}><CalendarDays size={12} /> Generate fixtures</B>
+              </div>
+            )}
+          </div>
         ))}
       </div>
       {showEmblems && <EmblemManager ctx={ctx} onClose={() => setShowEmblems(false)} />}
+      {genPage && (
+        <Modal title={"Generate fixtures — " + genPage.title} onClose={() => setGenPage(null)}>
+          <div className="space-y-3">
+            <p className="text-sm text-stone-600">Creates one scheduled battle for every pair of players in this table (round-robin), linked to this league. Dates are left blank to arrange; players link to profiles where you've set the member link.</p>
+            <Inp placeholder="Points per game (e.g. 1500)" value={genPoints} onChange={(e) => setGenPoints(e.target.value)} />
+            <B onClick={generateFixtures}><CalendarDays size={14} /> Generate</B>
+          </div>
+        </Modal>
+      )}
       {showNew && (
         <Modal title={"New " + label} onClose={() => setShowNew(false)}>
           <div className="space-y-3">

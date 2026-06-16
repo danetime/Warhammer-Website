@@ -1506,7 +1506,8 @@ function PageBlock({ pg, kind, isAdmin, editing, onEdit, onDone, onChange, onDel
     ? [...pg.rows].sort((a, b) => (parseInt(b.pts) || 0) - (parseInt(a.pts) || 0))
     : pg.rows;
   const navigate = useNavigate();
-  const rowMember = (r) => r.member || (memberNames || []).find((n) => n.toLowerCase() === (r.player || "").toLowerCase()) || null;
+  const MEMBER_FIELD = { player: "member", a: "aMember", b: "bMember" };
+  const linkFor = (r, f) => r[MEMBER_FIELD[f]] || (memberNames || []).find((n) => n.toLowerCase() === (r[f] || "").toLowerCase()) || null;
 
   return (
     <Card className="overflow-hidden">
@@ -1617,6 +1618,7 @@ function PageBlock({ pg, kind, isAdmin, editing, onEdit, onDone, onChange, onDel
                 )}
                 <div className={"flex items-center gap-2 py-1.5 " + rowCls}>
                   {cols.map(([f, lab, w]) => {
+                    const linkable = f === "player" || f === "a" || f === "b";
                     if (editing) {
                       if (f === "army") return (
                         <select key={f} value={r[f] || ""} onChange={(e) => setRow(r.id, f, e.target.value)}
@@ -1625,12 +1627,12 @@ function PageBlock({ pg, kind, isAdmin, editing, onEdit, onDone, onChange, onDel
                           {ARMIES.map((a) => <option key={a}>{a}</option>)}
                         </select>
                       );
-                      if (f === "player") return (
+                      if (linkable) return (
                         <div key={f} className={"flex flex-col gap-1 " + w}>
-                          <input value={r.player || ""} onChange={(e) => setRow(r.id, "player", e.target.value)} placeholder="Name"
+                          <input value={r[f] || ""} onChange={(e) => setRow(r.id, f, e.target.value)} placeholder={f === "player" ? "Name" : "Combatant"}
                             className="f-body rounded-sm border border-stone-300 bg-white px-2 py-1 text-sm" />
-                          <select value={r.member || ""} onChange={(e) => setRow(r.id, "member", e.target.value)}
-                            className="f-body rounded-sm border border-stone-300 bg-white px-1 py-1 text-[11px] text-stone-500" title="Link this row to a member's profile">
+                          <select value={r[MEMBER_FIELD[f]] || ""} onChange={(e) => setRow(r.id, MEMBER_FIELD[f], e.target.value)} title="Link to a member's profile"
+                            className="f-body rounded-sm border border-stone-300 bg-white px-1 py-1 text-[11px] text-stone-500">
                             <option value="">— link to member —</option>
                             {(memberNames || []).map((n) => <option key={n} value={n}>{n}</option>)}
                           </select>
@@ -1644,14 +1646,14 @@ function PageBlock({ pg, kind, isAdmin, editing, onEdit, onDone, onChange, onDel
                     if (f === "army") return (
                       <span key={f} className={"f-body flex items-center gap-1 text-xs italic text-stone-600 " + w}><ArmyEmblem army={r[f]} emblems={emblems} size={14} /><span className="truncate">{r[f] || ""}</span></span>
                     );
-                    if (f === "player") {
-                      const m = rowMember(r);
+                    if (linkable) {
+                      const m = linkFor(r, f);
                       return m
-                        ? <button key={f} onClick={() => navigate("/member/" + encodeURIComponent(m))} className={"f-body truncate text-left text-sm font-medium text-red-900 hover:underline " + w}>{r.player}</button>
-                        : <span key={f} className={"f-body truncate text-sm font-medium " + w}>{r.player}</span>;
+                        ? <button key={f} onClick={() => navigate("/member/" + encodeURIComponent(m))} className={"f-body text-left text-sm font-medium text-red-900 hover:underline " + w}>{r[f]}</button>
+                        : <span key={f} className={"f-body text-sm font-medium " + w}>{r[f]}</span>;
                     }
                     return (
-                      <span key={f} className={"f-body text-sm " + w + (f === "a" || f === "b" ? " font-medium" : f === "pts" ? " font-bold text-red-900" : "")}>{r[f]}</span>
+                      <span key={f} className={"f-body text-sm " + w + (f === "pts" ? " font-bold text-red-900" : "")}>{r[f]}</span>
                     );
                   })}
                   {editing && (

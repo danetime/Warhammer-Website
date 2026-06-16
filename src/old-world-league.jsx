@@ -2275,34 +2275,6 @@ function CouncilTab({ ctx }) {
         Only the Grand Marshal wields the gavel.
       </p>
 
-      <H icon={Scroll}>Laws of the league</H>
-      {sealed.length === 0 ? (
-        <Empty>No laws ratified yet. Anarchy reigns.</Empty>
-      ) : (
-        <div className="space-y-3">
-          {sealed.map((p) => {
-            const { ayes, nays } = tally(p);
-            return (
-              <Card key={p.id} className="flex items-start gap-3 border-green-700 bg-green-50 p-4">
-                <Seal />
-                <div className="min-w-0 flex-1">
-                  <p className="f-disp text-sm font-bold">{p.title}</p>
-                  {p.detail && <p className="mt-1 whitespace-pre-wrap text-sm text-stone-700">{p.detail}</p>}
-                  <p className="mt-1.5 text-[11px] italic text-stone-500">
-                    Carried {ayes}–{nays} · proposed by {p.proposedBy} · sealed by {p.sealedBy}
-                  </p>
-                </div>
-                {user.isAdmin && (
-                  <button onClick={() => remove(p)} className="shrink-0 text-stone-400 hover:text-red-800" title="Repeal entirely">
-                    <Trash2 size={13} />
-                  </button>
-                )}
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
       <H icon={Gavel}>Before the council</H>
       {open.length === 0 ? (
         <Empty>No motions on the table. Surely someone wants to ban something Dan does.</Empty>
@@ -2337,6 +2309,34 @@ function CouncilTab({ ctx }) {
                     </span>
                   )}
                 </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      <H icon={Scroll}>Laws of the league</H>
+      {sealed.length === 0 ? (
+        <Empty>No laws ratified yet. Anarchy reigns.</Empty>
+      ) : (
+        <div className="space-y-3">
+          {sealed.map((p) => {
+            const { ayes, nays } = tally(p);
+            return (
+              <Card key={p.id} className="flex items-start gap-3 border-green-700 bg-green-50 p-4">
+                <Seal />
+                <div className="min-w-0 flex-1">
+                  <p className="f-disp text-sm font-bold">{p.title}</p>
+                  {p.detail && <p className="mt-1 whitespace-pre-wrap text-sm text-stone-700">{p.detail}</p>}
+                  <p className="mt-1.5 text-[11px] italic text-stone-500">
+                    Carried {ayes}–{nays} · proposed by {p.proposedBy} · sealed by {p.sealedBy}
+                  </p>
+                </div>
+                {user.isAdmin && (
+                  <button onClick={() => remove(p)} className="shrink-0 text-stone-400 hover:text-red-800" title="Repeal entirely">
+                    <Trash2 size={13} />
+                  </button>
+                )}
               </Card>
             );
           })}

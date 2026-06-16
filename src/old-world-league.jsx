@@ -866,7 +866,7 @@ function ProfilePage({ ctx }) {
           <div className="lg:col-span-1">
             <H icon={Trophy}>Record</H>
             <Card className="divide-y divide-stone-200">
-              <div className="flex items-center justify-between px-3 py-2"><span className="f-disp text-sm">ELO rating</span><span className="f-disp text-sm font-bold text-red-900">{standing ? standing.elo : "—"}</span></div>
+              <div className="flex items-center justify-between px-3 py-2"><span className="f-disp text-sm">Might</span><span className="f-disp text-sm font-bold text-red-900">{standing ? standing.elo : "—"}</span></div>
               <div className="flex items-center justify-between px-3 py-2"><span className="f-disp text-sm">Games played</span><span className="f-disp text-sm font-bold">{games[who] || 0}</span></div>
               <div className="flex items-center justify-between px-3 py-2"><span className="f-disp text-sm">Won / Drawn / Lost</span><span className="f-disp text-sm font-bold">{standing ? standing.w + " / " + standing.d + " / " + standing.l : "0 / 0 / 0"}</span></div>
               <div className="flex items-center justify-between px-3 py-2"><span className="f-disp text-sm">League points</span><span className="f-disp text-sm font-bold">{standing ? standing.pts : 0}</span></div>
@@ -1176,24 +1176,6 @@ function HomeTab({ ctx, go }) {
           </div>
         )}
 
-        <H icon={Trophy} right={<B small kind="ghost" onClick={() => go("faq")}>What's ELO? <HelpCircle size={12} /></B>}>The Ladder</H>
-        {ladder.length === 0 ? (
-          <Empty>No ranked battles yet. File a battle report and claim the top spot before Dan does.</Empty>
-        ) : (
-          <Card className="divide-y divide-stone-200">
-            {ladder.slice(0, 6).map((r, i) => (
-              <div key={r.name} className="flex items-center gap-3 px-3 py-2">
-                <span className={"f-disp flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold " + medal(i)}>{i + 1}</span>
-                <div className="min-w-0 flex-1">
-                  <button onClick={() => navigate("/member/" + encodeURIComponent(r.name))} className="f-disp block max-w-full truncate text-left text-sm font-bold hover:text-red-900 hover:underline">{r.name}</button>
-                  <p className="text-[11px] text-stone-500">P{r.p} · W{r.w} D{r.d} L{r.l} · {r.pts} pts</p>
-                </div>
-                <p className="f-disp text-sm font-bold text-red-900">{r.elo}</p>
-              </div>
-            ))}
-          </Card>
-        )}
-
         <H icon={Camera} right={<B small kind="ghost" onClick={() => go("gallery")}>Gallery <ChevronRight size={12} /></B>}>
           From the front lines
         </H>
@@ -1214,28 +1196,23 @@ function HomeTab({ ctx, go }) {
       </div>
 
       <div>
-        <H icon={Beer}>Tavern Talk</H>
-        <Card className="p-3">
-          <div className="space-y-3">
-            {recentQuotes.length === 0 && <Empty>Nothing quotable said yet. Unlikely, knowing this lot.</Empty>}
-            {recentQuotes.map((q) => (
-              <div key={q.id} className="group relative border-l-2 border-amber-600 pl-3">
-                <p className="text-sm italic">"{q.text}"</p>
-                <p className="mt-0.5 text-[11px] text-stone-500">— {q.saidBy}</p>
-                {(user.isAdmin || q.addedBy === user.name) && (
-                  <button onClick={() => delQuote(q)} className="absolute right-0 top-0 hidden text-stone-400 hover:text-red-800 group-hover:block">
-                    <Trash2 size={12} />
-                  </button>
-                )}
+        <H icon={Trophy} right={<B small kind="ghost" onClick={() => go("faq")}>What's Might? <HelpCircle size={12} /></B>}>The Ladder</H>
+        {ladder.length === 0 ? (
+          <Empty>No ranked battles yet. File a battle report and claim the top spot before Dan does.</Empty>
+        ) : (
+          <Card className="divide-y divide-stone-200">
+            {ladder.slice(0, 6).map((r, i) => (
+              <div key={r.name} className="flex items-center gap-3 px-3 py-2">
+                <span className={"f-disp flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold " + medal(i)}>{i + 1}</span>
+                <div className="min-w-0 flex-1">
+                  <button onClick={() => navigate("/member/" + encodeURIComponent(r.name))} className="f-disp block max-w-full truncate text-left text-sm font-bold hover:text-red-900 hover:underline">{r.name}</button>
+                  <p className="text-[11px] text-stone-500">P{r.p} · W{r.w} D{r.d} L{r.l} · {r.pts} pts</p>
+                </div>
+                <p className="f-disp text-sm font-bold text-red-900">{r.elo}</p>
               </div>
             ))}
-          </div>
-          <div className="mt-4 space-y-2 border-t border-stone-200 pt-3">
-            <Inp placeholder="What was said…" value={newQuote} onChange={(e) => setNewQuote(e.target.value)} />
-            <Inp placeholder="Who said it" value={saidBy} onChange={(e) => setSaidBy(e.target.value)} />
-            <B small kind="gold" onClick={addQuote}><Plus size={12} /> Record it</B>
-          </div>
-        </Card>
+          </Card>
+        )}
 
         <H icon={Skull}>Hall of Infamy</H>
         <Card className="p-3">
@@ -1865,7 +1842,7 @@ function BattlesTab({ ctx }) {
             <div className="f-disp flex gap-2 border-b border-stone-300 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-stone-500">
               <span className="w-8">#</span><span className="flex-1">Player</span>
               <span className="w-10">P</span><span className="w-10">W</span><span className="w-10">D</span><span className="w-10">L</span>
-              <span className="w-12">Pts</span><span className="w-14 text-right">ELO</span>
+              <span className="w-12">Pts</span><span className="w-14 text-right">Might</span>
             </div>
             {ladder.map((r, i) => (
               <div key={r.name} className={"flex items-center gap-2 px-3 py-2 text-sm " + (i % 2 ? "bg-stone-100/60" : "")}>
@@ -1944,7 +1921,7 @@ function BattlesTab({ ctx }) {
             <Inp placeholder="Result detail (e.g. Massacre, +840 VP)" value={rp.score} onChange={(e) => setRp({ ...rp, score: e.target.value })} />
             <label className="f-body flex items-center gap-2 text-sm text-stone-700">
               <input type="checkbox" checked={!rp.ranked} onChange={(e) => setRp({ ...rp, ranked: !e.target.checked })} />
-              Casual game — keep it out of ELO, league points &amp; records
+              Casual game — keep it out of Might, league points &amp; records
             </label>
             <TA rows={2} placeholder="Moment of the match…" value={rp.moment} onChange={(e) => setRp({ ...rp, moment: e.target.value })} />
             <div>
@@ -2210,11 +2187,11 @@ function FaqTab({ ctx }) {
     <div>
       <div className="mb-6 rounded-sm border-2 border-amber-700 bg-amber-100/50 p-4 shadow-sm">
         <h2 className="f-disp flex items-center gap-2 text-lg font-bold uppercase tracking-wide text-red-950">
-          <Trophy size={18} className="text-amber-700" /> What is ELO?
+          <Trophy size={18} className="text-amber-700" /> What is Might?
         </h2>
         <div className="rule-line mb-3 mt-1" />
         <p className="f-body text-sm text-stone-700">
-          ELO is a <span className="font-bold">skill rating</span> borrowed from chess — it answers
+          Might is a <span className="font-bold">skill rating</span> (an ELO-style system, borrowed from chess) — it answers
           “who's the best general?”, separate from how often you turn up.
         </p>
         <ul className="mt-2 space-y-1 text-sm text-stone-700">
@@ -2222,7 +2199,7 @@ function FaqTab({ ctx }) {
           <li>Win and it rises, lose and it falls; a draw barely moves it.</li>
           <li><span className="font-bold">Beat a higher-rated foe</span> and you gain more; lose to a lower-rated one and you drop more.</li>
           <li>Victory margin weights the swing — <span className="italic">Marginal ×0.75 · Victory ×1 · Defiant ×1.25</span>.</li>
-          <li><span className="font-bold">Casual</span> games (ticked when filing) don't touch ELO, league points or records.</li>
+          <li><span className="font-bold">Casual</span> games (ticked when filing) don't touch Might, league points or records.</li>
         </ul>
         <div className="mt-3 rounded-sm border border-amber-700/40 bg-white/60 p-3 text-sm text-stone-700">
           <p className="f-disp text-[11px] font-bold uppercase tracking-widest text-amber-800">Worked example</p>

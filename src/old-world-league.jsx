@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 import { db, photoUrl, emblemUrl, avatarUrl } from "./lib/db";
+import { notify } from "./lib/notify";
 
 /* ============================================================
    THE OLD WORLD LEAGUE — a private hub for a WHFB 7th ed group
@@ -37,7 +38,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 /* ---------- profiles (Supabase) -> the shape the UI expects ----------
    The DB stores snake_case; the UI expects { name, faction, isAdmin }. */
 const mapProfile = (p) =>
-  p ? { id: p.id, name: p.display_name, faction: p.faction, isAdmin: p.is_admin, joined: p.joined, avatarPath: p.avatar_path, mascotPath: p.mascot_path } : null;
+  p ? { id: p.id, name: p.display_name, faction: p.faction, isAdmin: p.is_admin, joined: p.joined, avatarPath: p.avatar_path, mascotPath: p.mascot_path, emailPrefs: p.email_prefs || {} } : null;
 
 async function loadProfiles() {
   try {
@@ -819,6 +820,7 @@ function ProfilePage({ ctx }) {
   const [showAward, setShowAward] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [editArmy, setEditArmy] = useState("");
+  const [emailPrefs, setEmailPrefs] = useState({});
   const [cat, setCat] = useState("league");
   const [hTitle, setHTitle] = useState("");
   const [hSeason, setHSeason] = useState("");
@@ -853,6 +855,7 @@ function ProfilePage({ ctx }) {
   const saveProfile = async () => {
     if (!member) return;
     if (editArmy && editArmy !== member.faction) await db.profiles.update(member.id, { faction: editArmy });
+    if (member.name === user.name) await db.profiles.update(member.id, { email_prefs: emailPrefs });
     await refreshUsers();
     await refreshUser();
     setShowEdit(false);
@@ -914,7 +917,7 @@ function ProfilePage({ ctx }) {
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {canEdit && member && (
-                    <button onClick={() => { setEditArmy(member.faction); setShowEdit(true); }}
+                    <button onClick={() => { setEditArmy(member.faction); setEmailPrefs(member.emailPrefs || {}); setShowEdit(true); }}
                       className="rounded-sm border border-stone-300 bg-white/70 p-1.5 text-stone-500 hover:text-red-900" title="Edit profile & settings">
                       <Settings size={18} />
                     </button>
@@ -1093,6 +1096,20 @@ function ProfilePage({ ctx }) {
                 {mascotSrc && <button onClick={() => removeImg("mascot_path")} className="f-disp text-[11px] uppercase tracking-wide text-stone-400 hover:text-red-800">Remove</button>}
               </div>
             </div>
+            {member.name === user.name && (
+              <div>
+                <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Email notifications</p>
+                <label className="f-body flex items-center gap-2 text-sm text-stone-700">
+                  <input type="checkbox" checked={emailPrefs.broadcasts !== false} onChange={(e) => setEmailPrefs({ ...emailPrefs, broadcasts: e.target.checked })} />
+                  Availability calls &amp; gathering announcements
+                </label>
+                <label className="f-body mt-1 flex items-center gap-2 text-sm text-stone-700">
+                  <input type="checkbox" checked={emailPrefs.digest !== false} onChange={(e) => setEmailPrefs({ ...emailPrefs, digest: e.target.checked })} />
+                  Weekly digest
+                </label>
+                <p className="mt-1 text-[11px] italic text-stone-500">You're always emailed when someone accepts your own game.</p>
+              </div>
+            )}
             <B onClick={saveProfile}><Save size={14} /> Save</B>
           </div>
         </Modal>
@@ -1182,8 +1199,9 @@ function HomeTab({ ctx, go }) {
 
   const postAvail = async () => {
     if (!avDate) return;
-    await db.availability.add({ member: user.name, date: avDate, kind: avKind, pageId: avKind === "friendly" ? null : (avPage || null), note: avNote.trim() });
+    const res = await db.availability.add({ member: user.name, date: avDate, kind: avKind, pageId: avKind === "friendly" ? null : (avPage || null), note: avNote.trim() });
     await reload.availability();
+    if (res && res.data && res.data.id) notify("availability", { id: res.data.id });
     setAvDate(today()); setAvKind("friendly"); setAvPage(""); setAvNote(""); setShowAvail(false);
   };
   const acceptCall = async (a) => {
@@ -1192,6 +1210,7 @@ function HomeTab({ ctx, go }) {
     await db.availability.setTakers(a.id, [...(a.takers || []), user.name]);
     await reload.fixtures();
     await reload.availability();
+    notify("accepted", { id: a.id });
   };
   const removeCall = async (a) => {
     if (!(user.isAdmin || a.member === user.name)) return;
@@ -3025,6 +3044,7 @@ function SocialBanner({ ctx }) {
   const save = async () => {
     await db.settings.set("next_social", { host: draft.host.trim(), location: draft.location.trim(), date: draft.date, note: draft.note.trim() });
     await reload.settings();
+    notify("gathering");
     setShow(false);
   };
   const clear = async () => {

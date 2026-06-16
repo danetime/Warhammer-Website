@@ -40,6 +40,26 @@ VITE_SUPABASE_ANON_KEY=your-anon-public-key
 
 The same Supabase project is used both locally and in production.
 
+### Email notifications (Vercel functions)
+
+Notification emails are sent by the serverless functions in `api/`, not the
+browser. They only run on Vercel (or `vercel dev`); under `npm run dev` the
+client trigger simply no-ops. Run `supabase/email-prefs.sql` once, then set
+these **server-side** env vars in Vercel (no `VITE_` prefix — they must never
+reach the browser):
+
+```
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key   # Supabase → Settings → API
+GMAIL_USER=youraddress@gmail.com
+GMAIL_APP_PASSWORD=your-16-char-app-password       # Google account → App passwords
+SITE_URL=https://your-site.vercel.app              # optional, for links
+CRON_SECRET=any-long-random-string                 # protects the weekly digest
+```
+
+The weekly digest schedule lives in `vercel.json` (`crons`). Swapping Gmail for
+Resend later only touches the transport in `api/notify.js` and `api/digest.js`.
+
 ## Build progress
 
 This follows the staged build brief:
@@ -70,6 +90,10 @@ src/
   lib/
     supabaseClient.js    Single shared Supabase client
     db.js                Data layer: load/CRUD + DB<->UI mapping, photo storage
+    notify.js            Best-effort client trigger for email notifications
+api/                     Vercel serverless functions (server-side email)
+  notify.js              Instant alerts: availability / accepted / gathering
+  digest.js              Weekly digest (run by Vercel Cron — see vercel.json)
 supabase/
   schema.sql             Step 2 tables + storage buckets (run in SQL Editor)
   auth.sql               Step 3 profile trigger + first-user-admin (optional)
@@ -87,6 +111,8 @@ supabase/
   photo-comments.sql     comments column on photos (members comment on the gallery)
   admin.sql              admin_delete_member() — remove a member (account + profile)
   settings.sql           key/value site settings (editable name + next gathering)
+  email-prefs.sql        per-member email opt-out (profiles.email_prefs)
+BACKLOG.md               Feature list & backlog (deferred ideas, tech debt)
 tailwind.config.js
 postcss.config.js
 vite.config.js

@@ -182,7 +182,7 @@ export const db = {
     add: (a) => supabase.from("availability").insert({
       member: a.member, date: a.date || null, kind: a.kind,
       page_id: a.pageId || null, note: a.note,
-    }),
+    }).select().single(),
     setTakers: (id, takers) => supabase.from("availability").update({ takers }).eq("id", id),
     remove: (id) => supabase.from("availability").delete().eq("id", id),
   },

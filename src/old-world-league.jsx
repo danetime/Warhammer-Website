@@ -591,26 +591,30 @@ export default function App() {
     if (session?.user) setUser(await fetchProfile(session.user.id));
   };
 
+  // Pull every collection in one go. Run at boot, and again whenever the
+  // signed-in member changes (see effect below).
+  const loadAll = async () => {
+    try {
+      const [us, fx, rp, qt, fq, rl, pg, px, pr, ch, hn, av, em, lr, st] = await Promise.all([
+        loadProfiles(), db.fixtures.list(), db.reports.list(), db.quotes.list(), db.faqs.list(),
+        db.rules.list(), db.pages.list(), db.photos.list(), db.proposals.list(),
+        db.champions.list(), db.honours.list(), db.availability.list(), db.emblems.list(),
+        db.laurels.list(), db.settings.get(),
+      ]);
+      setUsers(us); setFixtures(fx); setReports(rp); setQuotes(qt);
+      setFaq(fq); setRules(rl); setPages(pg); setPhotosIdx(px);
+      setProposals(pr); setChampions(ch); setHonours(hn); setAvailability(av); setEmblems(em);
+      setLaurels(lr); setSettings(st);
+    } catch (e) { console.error("loadAll failed", e); }
+  };
+
   useEffect(() => {
     let settled = false;
     const finish = () => { if (!settled) { settled = true; setBooted(true); } };
 
-    // Load all data (incl. the roster) independently of auth, then boot.
-    (async () => {
-      try {
-        const [us, fx, rp, qt, fq, rl, pg, px, pr, ch, hn, av, em, lr, st] = await Promise.all([
-          loadProfiles(), db.fixtures.list(), db.reports.list(), db.quotes.list(), db.faqs.list(),
-          db.rules.list(), db.pages.list(), db.photos.list(), db.proposals.list(),
-          db.champions.list(), db.honours.list(), db.availability.list(), db.emblems.list(),
-          db.laurels.list(), db.settings.get(),
-        ]);
-        setUsers(us); setFixtures(fx); setReports(rp); setQuotes(qt);
-        setFaq(fq); setRules(rl); setPages(pg); setPhotosIdx(px);
-        setProposals(pr); setChampions(ch); setHonours(hn); setAvailability(av); setEmblems(em);
-        setLaurels(lr); setSettings(st);
-      } catch (e) { console.error("boot (data) failed", e); }
-      finish();
-    })();
+    // Load everything, then boot. (Anonymous at first; RLS hides member data,
+    // so the post-login effect below re-pulls it once we know who you are.)
+    loadAll().finally(finish);
 
     // Resolve the current user separately so a slow auth lock can't hang boot.
     (async () => {
@@ -629,6 +633,18 @@ export default function App() {
     });
     return () => { clearTimeout(safety); subscription.unsubscribe(); };
   }, []);
+
+  // The pre-login fetch comes back empty (RLS), so re-pull everything the
+  // moment we know the signed-in member — fixes the blank screen on first
+  // login without needing a manual refresh. Guarded so it runs once per user.
+  const loadedFor = useRef("anon");
+  useEffect(() => {
+    const key = user?.id || "anon";
+    if (loadedFor.current === key) return;
+    loadedFor.current = key;
+    loadAll();
+  }, [user]);
+
 
   const reload = {
     fixtures: async () => setFixtures(await db.fixtures.list()),

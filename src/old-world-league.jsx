@@ -1547,13 +1547,16 @@ function PageBlock({ pg, kind, isAdmin, editing, onEdit, onDone, onChange, onDel
   const saveAll = async () => { await onChange(draft); onDone(); };
 
   const noDraws = !!info.noDraws;
+  const winPts = info.winPts === "" || info.winPts == null ? 3 : Number(info.winPts);
+  const drawPts = info.drawPts === "" || info.drawPts == null ? 1 : Number(info.drawPts);
+  const ptsFor = (r) => (parseInt(r.w) || 0) * winPts + (noDraws ? 0 : (parseInt(r.d) || 0) * drawPts);
   const cols = kind === "league"
     ? [["player", "Player", "w-32 truncate"], ["army", "Army", "w-36"], ["p", "P", "w-10"], ["w", "W", "w-10"], ["d", "D", "w-10"], ["l", "L", "w-10"], ["pts", "Pts", "w-12"]]
         .filter(([f]) => !(f === "d" && noDraws))
     : [["round", "Round", "w-28"], ["a", "Combatant A", "flex-1"], ["b", "Combatant B", "flex-1"], ["score", "Result", "w-24"]];
 
   const sortedRows = kind === "league" && !editing
-    ? [...pg.rows].sort((a, b) => (parseInt(b.pts) || 0) - (parseInt(a.pts) || 0))
+    ? [...pg.rows].sort((a, b) => ptsFor(b) - ptsFor(a))
     : pg.rows;
   const navigate = useNavigate();
   const MEMBER_FIELD = { player: "member", a: "aMember", b: "bMember" };
@@ -1596,6 +1599,23 @@ function PageBlock({ pg, kind, isAdmin, editing, onEdit, onDone, onChange, onDel
                     <input type="checkbox" checked={!!info.noDraws} onChange={(e) => setInfo("noDraws", e.target.checked)} />
                     No draws (play for victory — hides the D column)
                   </label>
+                )}
+                {kind === "league" && (
+                  <div className="flex gap-2">
+                    <label className="f-body flex-1 text-[11px] font-bold uppercase tracking-widest text-stone-600">
+                      Points per win
+                      <Inp type="number" min="0" value={info.winPts ?? ""} placeholder="3" onChange={(e) => setInfo("winPts", e.target.value)} />
+                    </label>
+                    {!info.noDraws && (
+                      <label className="f-body flex-1 text-[11px] font-bold uppercase tracking-widest text-stone-600">
+                        Points per draw
+                        <Inp type="number" min="0" value={info.drawPts ?? ""} placeholder="1" onChange={(e) => setInfo("drawPts", e.target.value)} />
+                      </label>
+                    )}
+                  </div>
+                )}
+                {kind === "league" && (
+                  <p className="f-body text-[11px] italic text-stone-500">Pts are worked out automatically from W and D.</p>
                 )}
                 <p className="f-disp pt-1 text-[11px] font-bold uppercase tracking-widest text-stone-600">FAQs</p>
                 {(info.faqs || []).map((f) => (
@@ -1688,6 +1708,10 @@ function PageBlock({ pg, kind, isAdmin, editing, onEdit, onDone, onChange, onDel
                           </select>
                         </div>
                       );
+                      if (f === "pts" && kind === "league") return (
+                        <span key={f} title="Auto-calculated from W and D"
+                          className={"f-body flex items-center px-2 py-1 text-sm font-bold text-red-900 " + w}>{ptsFor(r)}</span>
+                      );
                       return (
                         <input key={f} value={r[f]} onChange={(e) => setRow(r.id, f, e.target.value)}
                           className={"f-body rounded-sm border border-stone-300 bg-white px-2 py-1 text-sm " + w} />
@@ -1703,7 +1727,7 @@ function PageBlock({ pg, kind, isAdmin, editing, onEdit, onDone, onChange, onDel
                         : <span key={f} className={"f-body text-sm font-medium " + w}>{r[f]}</span>;
                     }
                     return (
-                      <span key={f} className={"f-body text-sm " + w + (f === "pts" ? " font-bold text-red-900" : "")}>{r[f]}</span>
+                      <span key={f} className={"f-body text-sm " + w + (f === "pts" ? " font-bold text-red-900" : "")}>{f === "pts" && kind === "league" ? ptsFor(r) : r[f]}</span>
                     );
                   })}
                   {editing && (

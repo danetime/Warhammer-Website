@@ -3,7 +3,7 @@ import { Routes, Route, useNavigate, useParams, Link } from "react-router-dom";
 import {
   Swords, Trophy, Scroll, Camera, HelpCircle, Beer, Crown, Plus, Trash2,
   Pencil, LogOut, Upload, ThumbsUp, ThumbsDown, X, Shield, Skull, CalendarDays, Save,
-  BookOpen, Link as LinkIcon, ChevronRight, Gavel, Award, Medal, Star, Utensils, ArrowLeft, Menu
+  BookOpen, Link as LinkIcon, ChevronRight, Gavel, Award, Medal, Star, Utensils, ArrowLeft, Menu, Settings
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 import { db, photoUrl, emblemUrl, avatarUrl } from "./lib/db";
@@ -810,8 +810,8 @@ function ProfilePage({ ctx }) {
         </button>
 
         <div className="mb-6 rounded-sm border-2 border-amber-700 bg-gradient-to-r from-amber-100 to-amber-50 p-4 shadow-sm">
-          <div className="flex items-start gap-4">
-            <div className="flex shrink-0 gap-3">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+            <div className="flex shrink-0 justify-center gap-3 sm:justify-start">
               <div className="flex flex-col items-center gap-1">
                 {avatarSrc
                   ? <img src={avatarSrc} alt="" className="h-28 w-28 rounded-sm border-2 border-amber-700 object-cover shadow-sm" />
@@ -832,16 +832,27 @@ function ProfilePage({ ctx }) {
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <h1 className="f-black flex items-center gap-2 text-4xl leading-tight text-red-950">
-                {who}
-                {isChamp && <Crown size={22} className="shrink-0 text-amber-600" title="Champion of the Old World" />}
-                {canEdit && member && <button onClick={() => { setEditName(member.name); setEditArmy(member.faction); setEditErr(""); setShowEdit(true); }} className="text-stone-400 hover:text-red-900" title="Edit profile"><Pencil size={16} /></button>}
-              </h1>
-              <p className="f-disp text-sm italic text-stone-600">{faction} · {rk.title}{!member ? " · not on the muster roll" : ""}</p>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <h1 className="f-black flex items-center gap-2 text-3xl leading-tight text-red-950 sm:text-4xl">
+                    <span className="break-words">{who}</span>
+                    {isChamp && <Crown size={22} className="shrink-0 text-amber-600" title="Champion of the Old World" />}
+                  </h1>
+                  <p className="f-disp text-sm italic text-stone-600">{faction} · {rk.title}{!member ? " · not on the muster roll" : ""}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {canEdit && member && (
+                    <button onClick={() => { setEditName(member.name); setEditArmy(member.faction); setEditErr(""); setShowEdit(true); }}
+                      className="rounded-sm border border-stone-300 bg-white/70 p-1.5 text-stone-500 hover:text-red-900" title="Edit profile & settings">
+                      <Settings size={18} />
+                    </button>
+                  )}
+                  {user.isAdmin && (
+                    <B small kind="gold" onClick={() => setShowAward(true)}><Plus size={12} /> Award title</B>
+                  )}
+                </div>
+              </div>
             </div>
-            {user.isAdmin && (
-              <B small kind="gold" onClick={() => setShowAward(true)}><Plus size={12} /> Award title</B>
-            )}
           </div>
           {myHonours.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">

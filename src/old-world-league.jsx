@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 import { db, photoUrl, emblemUrl, avatarUrl } from "./lib/db";
+import { notify } from "./lib/notify";
 
 /* ============================================================
    THE OLD WORLD LEAGUE — a private hub for a WHFB 7th ed group
@@ -37,7 +38,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 /* ---------- profiles (Supabase) -> the shape the UI expects ----------
    The DB stores snake_case; the UI expects { name, faction, isAdmin }. */
 const mapProfile = (p) =>
-  p ? { id: p.id, name: p.display_name, faction: p.faction, isAdmin: p.is_admin, joined: p.joined, avatarPath: p.avatar_path, mascotPath: p.mascot_path } : null;
+  p ? { id: p.id, name: p.display_name, faction: p.faction, isAdmin: p.is_admin, joined: p.joined, avatarPath: p.avatar_path, mascotPath: p.mascot_path, emailPrefs: p.email_prefs || {} } : null;
 
 async function loadProfiles() {
   try {
@@ -819,6 +820,7 @@ function ProfilePage({ ctx }) {
   const [showAward, setShowAward] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [editArmy, setEditArmy] = useState("");
+  const [emailPrefs, setEmailPrefs] = useState({});
   const [cat, setCat] = useState("league");
   const [hTitle, setHTitle] = useState("");
   const [hSeason, setHSeason] = useState("");
@@ -853,6 +855,7 @@ function ProfilePage({ ctx }) {
   const saveProfile = async () => {
     if (!member) return;
     if (editArmy && editArmy !== member.faction) await db.profiles.update(member.id, { faction: editArmy });
+    if (member.name === user.name) await db.profiles.update(member.id, { email_prefs: emailPrefs });
     await refreshUsers();
     await refreshUser();
     setShowEdit(false);
@@ -914,7 +917,7 @@ function ProfilePage({ ctx }) {
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {canEdit && member && (
-                    <button onClick={() => { setEditArmy(member.faction); setShowEdit(true); }}
+                    <button onClick={() => { setEditArmy(member.faction); setEmailPrefs(member.emailPrefs || {}); setShowEdit(true); }}
                       className="rounded-sm border border-stone-300 bg-white/70 p-1.5 text-stone-500 hover:text-red-900" title="Edit profile & settings">
                       <Settings size={18} />
                     </button>
@@ -1093,6 +1096,20 @@ function ProfilePage({ ctx }) {
                 {mascotSrc && <button onClick={() => removeImg("mascot_path")} className="f-disp text-[11px] uppercase tracking-wide text-stone-400 hover:text-red-800">Remove</button>}
               </div>
             </div>
+            {member.name === user.name && (
+              <div>
+                <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Email notifications</p>
+                <label className="f-body flex items-center gap-2 text-sm text-stone-700">
+                  <input type="checkbox" checked={emailPrefs.broadcasts !== false} onChange={(e) => setEmailPrefs({ ...emailPrefs, broadcasts: e.target.checked })} />
+                  Availability calls &amp; gathering announcements
+                </label>
+                <label className="f-body mt-1 flex items-center gap-2 text-sm text-stone-700">
+                  <input type="checkbox" checked={emailPrefs.digest !== false} onChange={(e) => setEmailPrefs({ ...emailPrefs, digest: e.target.checked })} />
+                  Weekly digest
+                </label>
+                <p className="mt-1 text-[11px] italic text-stone-500">You're always emailed when someone accepts your own game.</p>
+              </div>
+            )}
             <B onClick={saveProfile}><Save size={14} /> Save</B>
           </div>
         </Modal>
@@ -1182,8 +1199,9 @@ function HomeTab({ ctx, go }) {
 
   const postAvail = async () => {
     if (!avDate) return;
-    await db.availability.add({ member: user.name, date: avDate, kind: avKind, pageId: avKind === "friendly" ? null : (avPage || null), note: avNote.trim() });
+    const res = await db.availability.add({ member: user.name, date: avDate, kind: avKind, pageId: avKind === "friendly" ? null : (avPage || null), note: avNote.trim() });
     await reload.availability();
+    if (res && res.data && res.data.id) notify("availability", { id: res.data.id });
     setAvDate(today()); setAvKind("friendly"); setAvPage(""); setAvNote(""); setShowAvail(false);
   };
   const acceptCall = async (a) => {
@@ -1192,6 +1210,7 @@ function HomeTab({ ctx, go }) {
     await db.availability.setTakers(a.id, [...(a.takers || []), user.name]);
     await reload.fixtures();
     await reload.availability();
+    notify("accepted", { id: a.id });
   };
   const removeCall = async (a) => {
     if (!(user.isAdmin || a.member === user.name)) return;
@@ -1520,6 +1539,8 @@ function PagesTab({ ctx, kind }) {
   const [showEmblems, setShowEmblems] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [genPage, setGenPage] = useState(null);
+  const [manualPage, setManualPage] = useState(null);
+  const [manualRows, setManualRows] = useState([]);
   const isAdmin = user.isAdmin;
   const label = kind === "league" ? "league table" : "tourney bracket";
 
@@ -1576,6 +1597,27 @@ function PagesTab({ ctx, kind }) {
     setGenPage(null);
   };
 
+  /* manual round-by-round fixture builder (for hand-drawn schedules) */
+  const blankPairing = (round) => ({ id: uid(), round: String(round || 1), a: "", b: "", date: "" });
+  const openManual = (pg) => { setManualRows([blankPairing(1)]); setManualPage(pg); };
+  const closeManual = () => { setManualPage(null); setManualRows([]); };
+  const setMR = (id, field, val) => setManualRows((rows) => rows.map((r) => (r.id === id ? { ...r, [field]: val } : r)));
+  const addMR = () => setManualRows((rows) => [...rows, blankPairing(rows.length ? rows[rows.length - 1].round : 1)]);
+  const delMR = (id) => setManualRows((rows) => (rows.length > 1 ? rows.filter((r) => r.id !== id) : rows));
+  const createManualFixtures = async () => {
+    if (!manualPage) return;
+    const valid = manualRows.filter((r) => r.a.trim() && r.b.trim());
+    for (const r of valid) {
+      await db.fixtures.add({
+        playerA: r.a.trim(), playerB: r.b.trim(), date: r.date || null,
+        points: "", kind: "league", pageId: manualPage.id, scenario: "", notes: "",
+        round: parseInt(r.round, 10) || null,
+      });
+    }
+    await reload.fixtures();
+    closeManual();
+  };
+
   return (
     <div>
       <H icon={kind === "league" ? Trophy : Crown}
@@ -1603,7 +1645,8 @@ function PagesTab({ ctx, kind }) {
               onDelete={() => deletePage(pg.id)}
               blankRow={blankRow} emblems={emblems} memberNames={memberNames} />
             {kind === "league" && isAdmin && (
-              <div className="mt-1 text-right">
+              <div className="mt-1 flex justify-end gap-2">
+                <B small kind="ghost" onClick={() => openManual(pg)}><Pencil size={12} /> Build by hand</B>
                 <B small kind="ghost" onClick={() => setGenPage(pg)}><CalendarDays size={12} /> Generate fixtures</B>
               </div>
             )}
@@ -1616,6 +1659,33 @@ function PagesTab({ ctx, kind }) {
           <div className="space-y-3">
             <p className="text-sm text-stone-600">Creates the full round-robin — every player meets every other once, split into rounds (Round 1, 2, …). Points and dates are left blank to set later. Players link to profiles where you've set the member link.</p>
             <B onClick={generateFixtures}><CalendarDays size={14} /> Generate rounds</B>
+          </div>
+        </Modal>
+      )}
+      {manualPage && (
+        <Modal title={"Build fixtures by hand — " + manualPage.title} onClose={closeManual}>
+          <datalist id="wh-manual-members">{(memberNames || []).map((n) => <option key={n} value={n} />)}</datalist>
+          <div className="space-y-3">
+            <p className="text-sm text-stone-600">Draw the pairings yourself, round by round. Leave the date blank for “TBC”. Points stay blank to set later; add special rules as a round note in the Battles tab.</p>
+            <div className="space-y-2">
+              {manualRows.map((r) => (
+                <div key={r.id} className="space-y-2 rounded-sm border border-stone-300 bg-white/40 p-2">
+                  <div className="flex items-center gap-2">
+                    <span className="f-disp shrink-0 text-[11px] font-bold uppercase tracking-wide text-stone-500">Round</span>
+                    <div className="w-16"><Inp type="number" min="1" value={r.round} onChange={(e) => setMR(r.id, "round", e.target.value)} /></div>
+                    <div className="flex-1"><Inp type="date" value={r.date} onChange={(e) => setMR(r.id, "date", e.target.value)} /></div>
+                    {manualRows.length > 1 && <button onClick={() => delMR(r.id)} className="shrink-0 text-stone-400 hover:text-red-800" title="Remove pairing"><X size={14} /></button>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1"><Inp list="wh-manual-members" placeholder="Combatant A" value={r.a} onChange={(e) => setMR(r.id, "a", e.target.value)} /></div>
+                    <span className="f-disp shrink-0 text-xs text-red-900">vs</span>
+                    <div className="flex-1"><Inp list="wh-manual-members" placeholder="Combatant B" value={r.b} onChange={(e) => setMR(r.id, "b", e.target.value)} /></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <B small kind="ghost" onClick={addMR}><Plus size={12} /> Add pairing</B>
+            <div className="pt-1"><B onClick={createManualFixtures}><CalendarDays size={14} /> Create fixtures</B></div>
           </div>
         </Modal>
       )}
@@ -2974,6 +3044,7 @@ function SocialBanner({ ctx }) {
   const save = async () => {
     await db.settings.set("next_social", { host: draft.host.trim(), location: draft.location.trim(), date: draft.date, note: draft.note.trim() });
     await reload.settings();
+    notify("gathering");
     setShow(false);
   };
   const clear = async () => {

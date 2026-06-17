@@ -50,6 +50,7 @@ const CHANGELOG = [
       "Member surnames on profiles, styled to their army — e.g. \"Danetime of House Breach\" (Empire) or \"Danetime of Clan Breach\" (Skaven) — so a username ties to a real person. Set by the Grand Marshal.",
       "Rename uploaded photos after the fact, for the ones folk forget to name.",
       "Fixed transparent PNG emblems appearing on a black background when uploaded to the leagues.",
+      "Fixed the battle-report name boxes on mobile — the keyboard no longer hides after one letter, and the member suggestions work again.",
       "Version number now shown in the footer — click it to open this changelog.",
     ],
   },
@@ -2221,6 +2222,17 @@ function CommittedLists({ ctx, pageId }) {
 /* ============================================================
    BATTLES — fixtures (admin) + battle reports (anyone)
    ============================================================ */
+/* Name field for the battle/fixture forms. MUST live at module scope: a
+   component defined inside BattlesTab is re-created on every keystroke, which
+   remounts the <input> and drops focus — on iOS that hides the keyboard after
+   one letter and the datalist dropdown never appears. It links to the
+   "wh-members" datalist (rendered inside BattlesTab) by id. */
+const PlayerInput = ({ value, onChange, placeholder }) => (
+  <div>
+    <Inp list="wh-members" placeholder={placeholder} value={value} onChange={onChange} autoCorrect="off" autoCapitalize="words" />
+  </div>
+);
+
 function BattlesTab({ ctx }) {
   const { user, memberNames, fixtures, reports, pages, db, reload } = ctx;
   const navigate = useNavigate();
@@ -2267,12 +2279,6 @@ function BattlesTab({ ctx }) {
   const setShame = (i, field, val) => {
     const s = [...rp.shame]; s[i] = { ...s[i], [field]: val }; setRp({ ...rp, shame: s });
   };
-
-  const PlayerInput = ({ value, onChange, placeholder }) => (
-    <div>
-      <Inp list="wh-members" placeholder={placeholder} value={value} onChange={onChange} />
-    </div>
-  );
 
   const sortedFixtures = [...fixtures].sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"));
   const sortedReports = [...reports].sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.created - a.created);

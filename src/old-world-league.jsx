@@ -35,6 +35,9 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 
 const today = () => new Date().toISOString().slice(0, 10);
 
+/* App version — shown in the footer. Bump on each release. */
+const VERSION = "1.0.0";
+
 /* ---------- profiles (Supabase) -> the shape the UI expects ----------
    The DB stores snake_case; the UI expects { name, faction, isAdmin }. */
 const mapProfile = (p) =>
@@ -327,8 +330,20 @@ function shameBoard(reports) {
   return { list, worst };
 }
 
-/* ---------- image compression for the gallery ---------- */
-function compressImage(file, maxDim = 900, quality = 0.72) {
+/* ---------- image compression for the gallery / emblems / avatars ----------
+   JPEG has no alpha channel, so encoding a transparent image (e.g. a PNG emblem)
+   as JPEG turns the see-through areas BLACK. We avoid that by writing PNG
+   whenever the image actually has transparent pixels — or whenever the caller
+   asks for it (format: "png", used for army emblems). Opaque photos still go to
+   JPEG so the gallery stays light. */
+function imageHasAlpha(ctx, w, h) {
+  try {
+    const { data } = ctx.getImageData(0, 0, w, h);
+    for (let i = 3; i < data.length; i += 4) if (data[i] < 255) return true;
+  } catch (e) { /* tainted canvas — treat as opaque */ }
+  return false;
+}
+function compressImage(file, maxDim = 900, quality = 0.72, { format = "auto" } = {}) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("Could not read file"));
@@ -338,10 +353,16 @@ function compressImage(file, maxDim = 900, quality = 0.72) {
       img.onload = () => {
         const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
         const c = document.createElement("canvas");
-        c.width = Math.round(img.width * scale);
-        c.height = Math.round(img.height * scale);
-        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-        resolve(c.toDataURL("image/jpeg", quality));
+        c.width = Math.max(1, Math.round(img.width * scale));
+        c.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = c.getContext("2d");
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        let usePng = format === "png";
+        if (format === "auto") {
+          const alphaCapable = /image\/(png|webp|gif|svg)/i.test(file.type || "");
+          usePng = alphaCapable && imageHasAlpha(ctx, c.width, c.height);
+        }
+        resolve(usePng ? c.toDataURL("image/png") : c.toDataURL("image/jpeg", quality));
       };
       img.src = reader.result;
     };
@@ -412,6 +433,36 @@ const Modal = ({ title, onClose, children }) => (
         <button onClick={onClose} className="text-stone-500 hover:text-stone-900"><X size={18} /></button>
       </div>
       <div className="p-4">{children}</div>
+    </div>
+  </div>
+);
+
+/* ---------- site footer (with the running version number) ---------- */
+const SiteFooter = () => (
+  <footer className="border-t border-stone-300 py-4 text-center">
+    <p className="f-disp text-[10px] uppercase tracking-widest text-stone-400">
+      Sigmar protects · No Age of Sigmar beyond this point
+    </p>
+    <p className="f-disp mt-1 text-[10px] uppercase tracking-widest text-stone-400/80">v{VERSION}</p>
+  </footer>
+);
+
+/* ---------- click-to-enlarge image overlay (profile pictures) ---------- */
+const ImagePopup = ({ src, alt, onClose }) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/90 p-4" onClick={onClose}>
+    <img src={src} alt={alt || ""} onClick={(e) => e.stopPropagation()}
+      className="max-h-[85vh] max-w-[90vw] rounded-sm border-2 border-amber-700 object-contain shadow-2xl" />
+    <button onClick={onClose} className="absolute right-4 top-4 text-stone-300 hover:text-amber-200" title="Close"><X size={26} /></button>
+  </div>
+);
+
+/* ---------- wax seal stamped on a committed army list ---------- */
+const CommittedSeal = ({ size = 60 }) => (
+  <div title="This army list is committed and sealed" style={{ width: size, height: size }}
+    className="relative inline-flex shrink-0 -rotate-6 items-center justify-center rounded-full border-2 border-double border-amber-200/80 bg-gradient-to-br from-red-700 to-red-950 text-amber-100 shadow-md">
+    <div className="flex flex-col items-center leading-none">
+      <Shield size={Math.round(size * 0.3)} className="text-amber-200" />
+      <span className="f-disp mt-0.5 text-[8px] font-bold uppercase tracking-wider">Committed</span>
     </div>
   </div>
 );
@@ -577,6 +628,7 @@ export default function App() {
   const [availability, setAvailability] = useState([]);
   const [emblems, setEmblems] = useState([]);
   const [laurels, setLaurels] = useState([]);
+  const [committedLists, setCommittedLists] = useState([]);
   const [settings, setSettings] = useState({});
 
   const siteName = (typeof settings.site_name === "string" && settings.site_name.trim()) ? settings.site_name : "The Old World League";
@@ -595,16 +647,16 @@ export default function App() {
   // signed-in member changes (see effect below).
   const loadAll = async () => {
     try {
-      const [us, fx, rp, qt, fq, rl, pg, px, pr, ch, hn, av, em, lr, st] = await Promise.all([
+      const [us, fx, rp, qt, fq, rl, pg, px, pr, ch, hn, av, em, lr, cl, st] = await Promise.all([
         loadProfiles(), db.fixtures.list(), db.reports.list(), db.quotes.list(), db.faqs.list(),
         db.rules.list(), db.pages.list(), db.photos.list(), db.proposals.list(),
         db.champions.list(), db.honours.list(), db.availability.list(), db.emblems.list(),
-        db.laurels.list(), db.settings.get(),
+        db.laurels.list(), db.committedLists.list(), db.settings.get(),
       ]);
       setUsers(us); setFixtures(fx); setReports(rp); setQuotes(qt);
       setFaq(fq); setRules(rl); setPages(pg); setPhotosIdx(px);
       setProposals(pr); setChampions(ch); setHonours(hn); setAvailability(av); setEmblems(em);
-      setLaurels(lr); setSettings(st);
+      setLaurels(lr); setCommittedLists(cl); setSettings(st);
     } catch (e) { console.error("loadAll failed", e); }
   };
 
@@ -660,6 +712,7 @@ export default function App() {
     availability: async () => setAvailability(await db.availability.list()),
     emblems: async () => setEmblems(await db.emblems.list()),
     laurels: async () => setLaurels(await db.laurels.list()),
+    committedLists: async () => setCommittedLists(await db.committedLists.list()),
     settings: async () => setSettings(await db.settings.get()),
   };
 
@@ -677,7 +730,7 @@ export default function App() {
   if (!user) return <LoginGate users={users} siteName={siteName} onAuthed={setUser} refreshUsers={refreshUsers} />;
 
   const memberNames = Object.values(users).map((u) => u.name);
-  const ctx = { user, users, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, honours, availability, emblems, laurels, settings, siteName, db, reload, refreshUsers, refreshUser, logout };
+  const ctx = { user, users, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, honours, availability, emblems, laurels, committedLists, settings, siteName, db, reload, refreshUsers, refreshUser, logout };
 
   return (
     <ErrorBoundary>
@@ -775,11 +828,7 @@ function Hub({ ctx }) {
         {tab === "faq" && <FaqTab ctx={ctx} />}
         {tab === "admin" && user.isAdmin && <AdminTab ctx={ctx} />}
       </main>
-      <footer className="border-t border-stone-300 py-4 text-center">
-        <p className="f-disp text-[10px] uppercase tracking-widest text-stone-400">
-          Sigmar protects · No Age of Sigmar beyond this point
-        </p>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }
@@ -835,6 +884,7 @@ function ProfilePage({ ctx }) {
 
   const [showAward, setShowAward] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
+  const [zoom, setZoom] = useState(null);
   const [editArmy, setEditArmy] = useState("");
   const [emailPrefs, setEmailPrefs] = useState({});
   const [cat, setCat] = useState("league");
@@ -911,13 +961,17 @@ function ProfilePage({ ctx }) {
             <div className="flex shrink-0 justify-center gap-3 sm:justify-start">
               <div className="flex flex-col items-center gap-1">
                 {avatarSrc
-                  ? <img src={avatarSrc} alt="" className="h-28 w-28 rounded-sm border-2 border-amber-700 object-cover shadow-sm" />
+                  ? <button type="button" onClick={() => setZoom({ src: avatarSrc, alt: who })} className="cursor-zoom-in" title="Click to enlarge">
+                      <img src={avatarSrc} alt="" className="h-28 w-28 rounded-sm border-2 border-amber-700 object-cover shadow-sm transition-transform hover:scale-105" />
+                    </button>
                   : <div className="flex h-28 w-28 items-center justify-center rounded-sm border-2 border-amber-700 bg-stone-200 text-stone-400"><Shield size={40} /></div>}
                 <span className="f-disp text-[10px] uppercase tracking-wide text-stone-400">Avatar</span>
               </div>
               {mascotSrc && (
                 <div className="flex flex-col items-center gap-1">
-                  <img src={mascotSrc} alt="Noble Steed" className="h-20 w-20 rounded-sm border-2 border-amber-700 object-cover shadow-sm" />
+                  <button type="button" onClick={() => setZoom({ src: mascotSrc, alt: who + "'s Noble Steed" })} className="cursor-zoom-in" title="Click to enlarge">
+                    <img src={mascotSrc} alt="Noble Steed" className="h-20 w-20 rounded-sm border-2 border-amber-700 object-cover shadow-sm transition-transform hover:scale-105" />
+                  </button>
                   <span className="f-disp text-[10px] uppercase tracking-wide text-stone-400">Noble Steed</span>
                 </div>
               )}
@@ -1053,11 +1107,7 @@ function ProfilePage({ ctx }) {
           </div>
         </div>
       </main>
-      <footer className="border-t border-stone-300 py-4 text-center">
-        <p className="f-disp text-[10px] uppercase tracking-widest text-stone-400">
-          Sigmar protects · No Age of Sigmar beyond this point
-        </p>
-      </footer>
+      <SiteFooter />
 
       {showAward && (
         <Modal title={"Award a title to " + who} onClose={() => setShowAward(false)}>
@@ -1130,6 +1180,8 @@ function ProfilePage({ ctx }) {
           </div>
         </Modal>
       )}
+
+      {zoom && <ImagePopup src={zoom.src} alt={zoom.alt} onClose={() => setZoom(null)} />}
     </div>
   );
 }
@@ -1197,6 +1249,11 @@ function HomeTab({ ctx, go }) {
   };
   const delComment = async (p, cid) => {
     await db.photos.setComments(p.id, (p.comments || []).filter((c) => c.id !== cid));
+    await reload.photosIdx();
+  };
+  const renamePhoto = async (p, caption) => {
+    if (!(user.isAdmin || p.uploader === user.name)) return;
+    await db.photos.setCaption(p.id, caption);
     await reload.photosIdx();
   };
 
@@ -1501,6 +1558,7 @@ function HomeTab({ ctx, go }) {
           onClose={() => setLbId(null)}
           onComment={addComment}
           onDelComment={delComment}
+          onRename={renamePhoto}
         />
       )}
     </div>
@@ -1517,7 +1575,7 @@ function EmblemManager({ ctx, onClose }) {
     if (!file) return;
     setBusy(army);
     try {
-      const dataURL = await compressImage(file, 128, 0.9);
+      const dataURL = await compressImage(file, 128, 0.9, { format: "png" });
       const res = await db.emblems.set(army, dataURL);
       if (!res.error) await reload.emblems();
     } catch (e) { /* ignore */ }
@@ -1666,6 +1724,7 @@ function PagesTab({ ctx, kind }) {
                 <B small kind="ghost" onClick={() => setGenPage(pg)}><CalendarDays size={12} /> Generate fixtures</B>
               </div>
             )}
+            <CommittedLists ctx={ctx} pageId={pg.id} />
           </div>
         ))}
       </div>
@@ -1938,6 +1997,134 @@ function PageBlock({ pg, kind, isAdmin, editing, onEdit, onDone, onChange, onDel
           })}
           {editing && <B small kind="ghost" onClick={addRow}><Plus size={12} /> Add row</B>}
           </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/* ============================================================
+   COMMITTED ARMY LISTS — lodged against a league/cup, then sealed
+   so a list can't be tailored to the opponent between rounds.
+   ============================================================ */
+function CommittedLists({ ctx, pageId }) {
+  const { user, memberNames, committedLists, db, reload } = ctx;
+  const navigate = useNavigate();
+  const lists = (committedLists || [])
+    .filter((c) => c.pageId === pageId)
+    .sort((a, b) => (a.player || "").localeCompare(b.player || "") || a.created - b.created);
+
+  const [player, setPlayer] = useState("");
+  const [points, setPoints] = useState("");
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [editId, setEditId] = useState(null);
+  const [edit, setEdit] = useState({ points: "", body: "" });
+
+  const canTouch = (c) => user.isAdmin || c.author === user.name;
+  const sealWarn = (name) => "Seal " + name + "’s list? Once committed it cannot be changed — only the Grand Marshal can unseal it.";
+
+  const save = async (commit) => {
+    const p = player.trim();
+    if (!p) { setErr("Choose or name a player first."); return; }
+    if (!body.trim()) { setErr("Write the army list in the box first."); return; }
+    if (commit && !confirm(sealWarn(p))) return;
+    setErr(""); setBusy(true);
+    const member = (memberNames || []).find((n) => n.toLowerCase() === p.toLowerCase()) || null;
+    const res = await db.committedLists.add({
+      pageId, player: p, member, points: points.trim(), body: body.trim(),
+      committed: !!commit, author: user.name,
+    });
+    setBusy(false);
+    if (res?.error) { setErr("Couldn't save the list. " + (res.error.message || "Has the committed-lists migration been run?")); return; }
+    setPlayer(""); setPoints(""); setBody("");
+    await reload.committedLists();
+  };
+
+  const startEdit = (c) => { setEditId(c.id); setEdit({ points: c.points || "", body: c.body || "" }); };
+  const saveEdit = async (c) => {
+    await db.committedLists.update(c.id, { points: edit.points.trim() || null, body: edit.body.trim() });
+    setEditId(null);
+    await reload.committedLists();
+  };
+  const commit = async (c) => { if (confirm(sealWarn(c.player))) { await db.committedLists.commit(c.id); await reload.committedLists(); } };
+  const uncommit = async (c) => { if (confirm("Unseal " + c.player + "’s list so it can be edited again?")) { await db.committedLists.uncommit(c.id); await reload.committedLists(); } };
+  const remove = async (c) => { if (confirm("Delete " + c.player + "’s committed list?")) { await db.committedLists.remove(c.id); await reload.committedLists(); } };
+
+  return (
+    <Card className="mt-2 p-3">
+      <p className="f-disp mb-1 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-amber-800">
+        <Scroll size={12} /> Committed army lists
+      </p>
+      <p className="f-body mb-3 text-[11px] italic text-stone-500">
+        Lodge a list and seal it. Once committed it can&rsquo;t be changed &mdash; so there&rsquo;s no tailoring your army to your opponent between rounds. Only the Grand Marshal can unseal a list.
+      </p>
+
+      {lists.length === 0 ? (
+        <p className="f-body mb-3 text-sm italic text-stone-500">No lists committed yet.</p>
+      ) : (
+        <div className="mb-4 space-y-2">
+          {lists.map((c) => (
+            <div key={c.id} className={"rounded-sm border p-2.5 " + (c.committed ? "border-amber-700/50 bg-amber-50/70" : "border-dashed border-stone-300 bg-white/50")}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="f-disp text-sm font-bold text-stone-800">
+                    {c.member
+                      ? <button onClick={() => navigate("/member/" + encodeURIComponent(c.member))} className="text-red-900 hover:underline">{c.player}</button>
+                      : c.player}
+                    {c.points ? <span className="f-body ml-1 text-xs italic text-stone-500">&middot; {c.points} pts</span> : null}
+                  </p>
+                  {!c.committed && <p className="f-disp text-[10px] uppercase tracking-wide text-stone-400">Draft &mdash; not yet sealed</p>}
+                </div>
+                {c.committed && <CommittedSeal size={54} />}
+              </div>
+
+              {editId === c.id ? (
+                <div className="mt-2 space-y-2">
+                  <Inp placeholder="Points (e.g. 750)" value={edit.points} onChange={(e) => setEdit({ ...edit, points: e.target.value })} />
+                  <TA rows={6} value={edit.body} onChange={(e) => setEdit({ ...edit, body: e.target.value })} />
+                  <div className="flex gap-2">
+                    <B small kind="gold" onClick={() => saveEdit(c)}><Save size={12} /> Save</B>
+                    <B small kind="ghost" onClick={() => setEditId(null)}>Cancel</B>
+                  </div>
+                </div>
+              ) : (
+                <pre className="f-body mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded-sm border border-stone-200 bg-white/70 p-2 text-xs text-stone-700">{c.body || "—"}</pre>
+              )}
+
+              {editId !== c.id && (user.isAdmin || (canTouch(c) && !c.committed)) && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {c.committed ? (
+                    <B small kind="ghost" onClick={() => uncommit(c)}><Pencil size={12} /> Unseal</B>
+                  ) : (
+                    <>
+                      <B small kind="ghost" onClick={() => startEdit(c)}><Pencil size={12} /> Edit</B>
+                      <B small kind="gold" onClick={() => commit(c)}><Shield size={12} /> Commit &amp; seal</B>
+                    </>
+                  )}
+                  {(user.isAdmin || (c.author === user.name && !c.committed)) && (
+                    <B small kind="danger" onClick={() => remove(c)} title="Delete"><Trash2 size={12} /></B>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="space-y-2 rounded-sm border border-stone-300 bg-stone-50/60 p-2.5">
+        <p className="f-disp text-[11px] font-bold uppercase tracking-wide text-stone-600">Lodge a list</p>
+        <datalist id={"wh-committed-" + pageId}>{(memberNames || []).map((n) => <option key={n} value={n} />)}</datalist>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="sm:flex-1"><Inp list={"wh-committed-" + pageId} placeholder="Player" value={player} onChange={(e) => setPlayer(e.target.value)} /></div>
+          <div className="sm:w-36"><Inp placeholder="Points (e.g. 750)" value={points} onChange={(e) => setPoints(e.target.value)} /></div>
+        </div>
+        <TA rows={6} placeholder="Paste the army list here&hellip;" value={body} onChange={(e) => setBody(e.target.value)} />
+        {err && <p className="f-body text-sm text-red-800">{err}</p>}
+        <div className="flex flex-wrap gap-2">
+          <B kind="gold" disabled={busy} onClick={() => save(true)}><Shield size={14} /> {busy ? "Saving…" : "Commit & seal"}</B>
+          <B kind="ghost" disabled={busy} onClick={() => save(false)}><Save size={14} /> Save as draft</B>
         </div>
       </div>
     </Card>
@@ -2262,6 +2449,12 @@ function GalleryTab({ ctx }) {
     await reload.photosIdx();
   };
 
+  const renamePhoto = async (p, caption) => {
+    if (!(user.isAdmin || p.uploader === user.name)) return;
+    await db.photos.setCaption(p.id, caption);
+    await reload.photosIdx();
+  };
+
   const toggleVote = async (p) => {
     const votes = p.votes || [];
     const next = votes.includes(user.name) ? votes.filter((v) => v !== user.name) : [...votes, user.name];
@@ -2344,7 +2537,10 @@ function GalleryTab({ ctx }) {
                     </button>
                   )}
                   {(user.isAdmin || p.uploader === user.name) && (
-                    <button onClick={() => delPhoto(p)} className="text-stone-400 hover:text-red-800"><Trash2 size={12} /></button>
+                    <>
+                      <button onClick={() => setLbId(p.id)} className="text-stone-400 hover:text-amber-700" title="Rename"><Pencil size={12} /></button>
+                      <button onClick={() => delPhoto(p)} className="text-stone-400 hover:text-red-800" title="Delete"><Trash2 size={12} /></button>
+                    </>
                   )}
                 </div>
               </div>
@@ -2361,6 +2557,7 @@ function GalleryTab({ ctx }) {
           onClose={() => setLbId(null)}
           onComment={addComment}
           onDelComment={delComment}
+          onRename={renamePhoto}
           onVote={lb.kind === "painting" ? toggleVote : undefined}
         />
       )}
@@ -2764,22 +2961,41 @@ function CouncilTab({ ctx }) {
 /* ============================================================
    PHOTO LIGHTBOX — enlarge a photo + comments (shared)
    ============================================================ */
-function PhotoLightbox({ photo, src, user, onClose, onComment, onDelComment, onVote }) {
+function PhotoLightbox({ photo, src, user, onClose, onComment, onDelComment, onVote, onRename }) {
   const [text, setText] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [cap, setCap] = useState(photo.caption || "");
   const comments = photo.comments || [];
+  const canRename = onRename && (photo.uploader === user.name || user.isAdmin);
   const submit = async () => {
     const t = text.trim();
     if (!t) return;
     setText("");
     await onComment(photo, t);
   };
+  const saveCap = async () => { await onRename(photo, cap.trim()); setEditing(false); };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/90 p-4" onClick={onClose}>
       <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-sm border border-amber-800/40 bg-stone-900 shadow-xl"
         onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between gap-2 border-b border-stone-700 px-3 py-2">
-          <div className="min-w-0">
-            <p className="f-disp truncate text-sm font-bold text-amber-100">{photo.caption || "Untitled"}</p>
+          <div className="min-w-0 flex-1">
+            {editing ? (
+              <div className="flex items-center gap-2">
+                <input value={cap} onChange={(e) => setCap(e.target.value)} autoFocus placeholder="Name this photo…"
+                  onKeyDown={(e) => { if (e.key === "Enter") saveCap(); if (e.key === "Escape") setEditing(false); }}
+                  className="field min-w-0 flex-1 rounded-sm border border-amber-800/40 px-2 py-1 text-sm" />
+                <B small kind="gold" onClick={saveCap}><Save size={12} /> Save</B>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <p className="f-disp truncate text-sm font-bold text-amber-100">{photo.caption || "Untitled"}</p>
+                {canRename && (
+                  <button onClick={() => { setCap(photo.caption || ""); setEditing(true); }} title="Rename this photo"
+                    className="shrink-0 text-stone-400 hover:text-amber-200"><Pencil size={13} /></button>
+                )}
+              </div>
+            )}
             <p className="truncate text-[11px] italic text-stone-400">{photo.uploader}</p>
           </div>
           <button onClick={onClose} className="shrink-0 text-stone-400 hover:text-amber-200"><X size={18} /></button>

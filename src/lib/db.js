@@ -60,6 +60,11 @@ const fromAvailability = (r) => ({
   id: r.id, member: r.member, date: r.date, kind: r.kind, pageId: r.page_id,
   note: r.note, takers: r.takers || [], created: ts(r.created_at),
 });
+const fromCommittedList = (r) => ({
+  id: r.id, pageId: r.page_id, player: r.player, member: r.member, points: r.points,
+  body: r.body || "", committed: !!r.committed, committedAt: ts(r.committed_at),
+  author: r.author, created: ts(r.created_at),
+});
 
 const list = async (table, mapper) => {
   try {
@@ -90,6 +95,11 @@ function dataURLtoBlob(dataURL) {
   for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
   return new Blob([arr], { type: mime });
 }
+
+// File extension for an image mime type. Kept in sync with the stored blob so a
+// transparent PNG isn't saved under a .jpg name (which would imply no alpha).
+const extFor = (mime) =>
+  mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : mime === "image/gif" ? "gif" : "jpg";
 
 export const db = {
   fixtures: {
@@ -157,11 +167,12 @@ export const db = {
     list: () => list("photos", fromPhoto),
     add: async ({ dataURL, caption, uploader, kind }) => {
       const blob = dataURLtoBlob(dataURL);
-      const path = kind + "/" + rid() + ".jpg";
+      const path = kind + "/" + rid() + "." + extFor(blob.type);
       const up = await supabase.storage.from(PHOTO_BUCKET).upload(path, blob, { contentType: blob.type });
       if (up.error) return up;
       return supabase.from("photos").insert({ caption, uploader, kind, storage_path: path, votes: [] });
     },
+    setCaption: (id, caption) => supabase.from("photos").update({ caption }).eq("id", id),
     setVotes: (id, votes) => supabase.from("photos").update({ votes }).eq("id", id),
     setComments: (id, comments) => supabase.from("photos").update({ comments }).eq("id", id),
     remove: async (photo) => {
@@ -186,12 +197,28 @@ export const db = {
     setTakers: (id, takers) => supabase.from("availability").update({ takers }).eq("id", id),
     remove: (id) => supabase.from("availability").delete().eq("id", id),
   },
+  committedLists: {
+    list: () => list("committed_lists", fromCommittedList),
+    add: (c) => supabase.from("committed_lists").insert({
+      page_id: c.pageId || null, player: c.player, member: c.member || null,
+      points: c.points || null, body: c.body || "", author: c.author,
+      committed: !!c.committed, committed_at: c.committed ? new Date().toISOString() : null,
+    }).select().single(),
+    update: (id, patch) => supabase.from("committed_lists").update(patch).eq("id", id),
+    commit: (id) => supabase.from("committed_lists").update({
+      committed: true, committed_at: new Date().toISOString(),
+    }).eq("id", id),
+    uncommit: (id) => supabase.from("committed_lists").update({
+      committed: false, committed_at: null,
+    }).eq("id", id),
+    remove: (id) => supabase.from("committed_lists").delete().eq("id", id),
+  },
   emblems: {
     list: () => list("army_emblems", (r) => ({ army: r.army, path: r.storage_path })),
     set: async (army, dataURL) => {
       const blob = dataURLtoBlob(dataURL);
       const slug = army.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-      const path = slug + "-" + Date.now() + ".png";
+      const path = slug + "-" + Date.now() + "." + extFor(blob.type);
       const up = await supabase.storage.from(EMBLEM_BUCKET).upload(path, blob, { contentType: blob.type });
       if (up.error) return up;
       return supabase.from("army_emblems").upsert({ army, storage_path: path }, { onConflict: "army" });
@@ -223,7 +250,7 @@ export const db = {
     remove: (id) => supabase.rpc("admin_delete_member", { target: id }),
     setImage: async (id, field, dataURL) => {
       const blob = dataURLtoBlob(dataURL);
-      const path = (field === "mascot_path" ? "mascot" : "avatar") + "/" + id + "-" + Date.now() + ".jpg";
+      const path = (field === "mascot_path" ? "mascot" : "avatar") + "/" + id + "-" + Date.now() + "." + extFor(blob.type);
       const up = await supabase.storage.from(AVATAR_BUCKET).upload(path, blob, { contentType: blob.type });
       if (up.error) return up;
       return supabase.from("profiles").update({ [field]: path }).eq("id", id);

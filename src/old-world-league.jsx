@@ -2358,34 +2358,56 @@ function BattlesTab({ ctx }) {
             )}
           </Card>
         );
-        const byRound = {}; const noRound = [];
-        for (const f of sortedFixtures) { if (f.round != null) (byRound[f.round] = byRound[f.round] || []).push(f); else noRound.push(f); }
-        const keys = Object.keys(byRound).map(Number).sort((a, b) => a - b);
+        // Group by competition first, then by round, so two leagues both running
+        // "Round 1" no longer collapse under a single shared header. Rounds carry
+        // a pageId (set by the scheduler); friendlies and roundless fixtures fall
+        // through to "Other battles".
+        const comps = new Map(); // pageId|"_" -> { page, rounds: { [round]: fixtures[] } }
+        const noRound = [];
+        for (const f of sortedFixtures) {
+          if (f.round == null) { noRound.push(f); continue; }
+          const key = f.pageId || "_";
+          if (!comps.has(key)) comps.set(key, { page: pages.find((p) => p.id === f.pageId) || null, rounds: {} });
+          const c = comps.get(key);
+          (c.rounds[f.round] = c.rounds[f.round] || []).push(f);
+        }
+        const compEntries = [...comps.values()].sort((a, b) => (a.page?.title || "~").localeCompare(b.page?.title || "~"));
+        const showCompHeads = compEntries.length > 1; // only label competitions when more than one is live
+        const roundBlock = (page, k, fixtures) => {
+          const note = page?.info?.rounds?.[k];
+          return (
+            <div key={(page?.id || "_") + ":" + k}>
+              <p className="f-disp mb-1 border-b border-amber-700/40 pb-0.5 text-[11px] font-bold uppercase tracking-widest text-amber-800">Round {k}</p>
+              {user.isAdmin && page ? (
+                <input
+                  defaultValue={note || ""}
+                  placeholder="Add a note for this round (e.g. 750 pts · special rules)…"
+                  onBlur={(e) => { if ((e.target.value || "").trim() !== (note || "")) saveRoundNote(page, k, e.target.value); }}
+                  className="field mb-2 w-full px-2 py-1 text-[11px] italic"
+                />
+              ) : note ? (
+                <p className="mb-2 text-[11px] italic text-stone-600">{note}</p>
+              ) : null}
+              <div className="space-y-2">{fixtures.map(fxCard)}</div>
+            </div>
+          );
+        };
         return (
           <div className="space-y-4">
-            {keys.map((k) => {
-              const pg = pages.find((p) => p.id === byRound[k][0]?.pageId);
-              const note = pg?.info?.rounds?.[k];
+            {compEntries.map((c) => {
+              const rkeys = Object.keys(c.rounds).map(Number).sort((a, b) => a - b);
               return (
-              <div key={k}>
-                <p className="f-disp mb-1 border-b border-amber-700/40 pb-0.5 text-[11px] font-bold uppercase tracking-widest text-amber-800">Round {k}</p>
-                {user.isAdmin && pg ? (
-                  <input
-                    defaultValue={note || ""}
-                    placeholder="Add a note for this round (e.g. 750 pts · special rules)…"
-                    onBlur={(e) => { if ((e.target.value || "").trim() !== (note || "")) saveRoundNote(pg, k, e.target.value); }}
-                    className="field mb-2 w-full px-2 py-1 text-[11px] italic"
-                  />
-                ) : note ? (
-                  <p className="mb-2 text-[11px] italic text-stone-600">{note}</p>
-                ) : null}
-                <div className="space-y-2">{byRound[k].map(fxCard)}</div>
-              </div>
+                <div key={c.page?.id || "_"} className="space-y-3">
+                  {showCompHeads && (
+                    <p className="f-black text-base leading-tight text-red-950">{c.page ? c.page.title : "Other fixtures"}</p>
+                  )}
+                  {rkeys.map((k) => roundBlock(c.page, k, c.rounds[k]))}
+                </div>
               );
             })}
             {noRound.length > 0 && (
               <div>
-                {keys.length > 0 && <p className="f-disp mb-2 border-b border-amber-700/40 pb-0.5 text-[11px] font-bold uppercase tracking-widest text-amber-800">Other battles</p>}
+                {comps.size > 0 && <p className="f-disp mb-2 border-b border-amber-700/40 pb-0.5 text-[11px] font-bold uppercase tracking-widest text-amber-800">Other battles</p>}
                 <div className="space-y-2">{noRound.map(fxCard)}</div>
               </div>
             )}

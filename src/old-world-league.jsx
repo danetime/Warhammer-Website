@@ -47,6 +47,7 @@ const CHANGELOG = [
     notes: [
       "Committed army lists — lock in the list you played so armies can't be tailored between rounds, sealed with a \"Committed\" wax stamp.",
       "Click any profile picture to enlarge it in a pop-up.",
+      "Member surnames on profiles, styled to their army — \"House Breach\" for the Empire, \"Clan Breach\" for Skaven — so a username ties to a real person. Set by the Grand Marshal.",
       "Rename uploaded photos after the fact, for the ones folk forget to name.",
       "Fixed transparent PNG emblems appearing on a black background when uploaded to the leagues.",
       "Version number now shown in the footer — click it to open this changelog.",
@@ -57,7 +58,7 @@ const CHANGELOG = [
 /* ---------- profiles (Supabase) -> the shape the UI expects ----------
    The DB stores snake_case; the UI expects { name, faction, isAdmin }. */
 const mapProfile = (p) =>
-  p ? { id: p.id, name: p.display_name, faction: p.faction, isAdmin: p.is_admin, joined: p.joined, avatarPath: p.avatar_path, mascotPath: p.mascot_path, emailPrefs: p.email_prefs || {} } : null;
+  p ? { id: p.id, name: p.display_name, faction: p.faction, surname: p.surname || "", isAdmin: p.is_admin, joined: p.joined, avatarPath: p.avatar_path, mascotPath: p.mascot_path, emailPrefs: p.email_prefs || {} } : null;
 
 async function loadProfiles() {
   try {
@@ -101,6 +102,34 @@ async function ensureProfile(authUser, meta) {
 const ARMIES = ["The Empire","Bretonnia","Dwarfs","High Elves","Dark Elves","Wood Elves",
   "Orcs & Goblins","Skaven","Vampire Counts","Tomb Kings","Warriors of Chaos","Daemons of Chaos",
   "Beastmen","Lizardmen","Ogre Kingdoms","Chaos Dwarfs","Dogs of War"];
+
+/* A member's surname gets a faction "twist" on their profile: "Breach" becomes
+   "House Breach" for the Empire, "Clan Breach" for Skaven, and so on. % is the
+   surname; unknown factions fall back to "House %". */
+const FACTION_HOUSE = {
+  "The Empire": "House %",
+  "Bretonnia": "House %",
+  "Dwarfs": "Clan %",
+  "High Elves": "House %",
+  "Dark Elves": "House %",
+  "Wood Elves": "the % Kindred",
+  "Orcs & Goblins": "the % Tribe",
+  "Skaven": "Clan %",
+  "Vampire Counts": "the % Bloodline",
+  "Tomb Kings": "the % Dynasty",
+  "Warriors of Chaos": "the % Warband",
+  "Daemons of Chaos": "the % Legion",
+  "Beastmen": "the % Bray-Herd",
+  "Lizardmen": "the % Spawning",
+  "Ogre Kingdoms": "the % Tribe",
+  "Chaos Dwarfs": "Clan %",
+  "Dogs of War": "the % Company",
+};
+const houseName = (faction, surname) => {
+  const s = (surname || "").trim();
+  if (!s) return "";
+  return (FACTION_HOUSE[faction] || "House %").replace("%", s);
+};
 
 const ARMY_STYLE = {
   "The Empire": "border-red-700 bg-red-50",
@@ -928,6 +957,7 @@ function ProfilePage({ ctx }) {
   const [showEdit, setShowEdit] = useState(false);
   const [zoom, setZoom] = useState(null);
   const [editArmy, setEditArmy] = useState("");
+  const [editSurname, setEditSurname] = useState("");
   const [emailPrefs, setEmailPrefs] = useState({});
   const [cat, setCat] = useState("league");
   const [hTitle, setHTitle] = useState("");
@@ -963,6 +993,10 @@ function ProfilePage({ ctx }) {
   const saveProfile = async () => {
     if (!member) return;
     if (editArmy && editArmy !== member.faction) await db.profiles.update(member.id, { faction: editArmy });
+    if (user.isAdmin) {
+      const newSurname = editSurname.trim();
+      if (newSurname !== (member.surname || "")) await db.profiles.update(member.id, { surname: newSurname || null });
+    }
     if (member.name === user.name) await db.profiles.update(member.id, { email_prefs: emailPrefs });
     await refreshUsers();
     await refreshUser();
@@ -1025,11 +1059,14 @@ function ProfilePage({ ctx }) {
                     <span className="break-words">{who}</span>
                     {isChamp && <Crown size={22} className="shrink-0 text-amber-600" title="Champion of the Old World" />}
                   </h1>
+                  {member && member.surname && (
+                    <p className="f-disp text-sm font-bold tracking-wide text-amber-800">{houseName(member.faction, member.surname)}</p>
+                  )}
                   <p className="f-disp text-sm italic text-stone-600">{rk.army} · {rk.title}{!member ? " · not on the muster roll" : ""}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {canEdit && member && (
-                    <button onClick={() => { setEditArmy(member.faction); setEmailPrefs(member.emailPrefs || {}); setShowEdit(true); }}
+                    <button onClick={() => { setEditArmy(member.faction); setEditSurname(member.surname || ""); setEmailPrefs(member.emailPrefs || {}); setShowEdit(true); }}
                       className="rounded-sm border border-stone-300 bg-white/70 p-1.5 text-stone-500 hover:text-red-900" title="Edit profile & settings">
                       <Settings size={18} />
                     </button>
@@ -1179,6 +1216,17 @@ function ProfilePage({ ctx }) {
                 {ARMIES.map((a) => <option key={a}>{a}</option>)}
               </Sel>
             </div>
+            {user.isAdmin && (
+              <div>
+                <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Surname (Grand Marshal only)</p>
+                <Inp value={editSurname} onChange={(e) => setEditSurname(e.target.value)} placeholder="e.g. Breach" maxLength={40} />
+                <p className="mt-1 text-[11px] italic text-stone-500">
+                  {editSurname.trim()
+                    ? <>Shown on the profile as <span className="font-bold not-italic text-amber-800">{houseName(editArmy || member.faction, editSurname)}</span></>
+                    : "Helps tie a username to a real person, styled to their army."}
+                </p>
+              </div>
+            )}
             <div>
               <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Avatar</p>
               <div className="flex items-center gap-3">

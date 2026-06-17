@@ -51,14 +51,27 @@ reach the browser):
 ```
 SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key   # Supabase → Settings → API
-GMAIL_USER=youraddress@gmail.com
-GMAIL_APP_PASSWORD=your-16-char-app-password       # Google account → App passwords
 SITE_URL=https://your-site.vercel.app              # optional, for links
 CRON_SECRET=any-long-random-string                 # protects the weekly digest
 ```
 
-The weekly digest schedule lives in `vercel.json` (`crons`). Swapping Gmail for
-Resend later only touches the transport in `api/notify.js` and `api/digest.js`.
+…plus **one** email transport. The shared `api/_mailer.js` prefers Resend when
+`RESEND_API_KEY` is set, and otherwise falls back to Gmail SMTP:
+
+```
+# Option A — Resend (recommended for a club domain + deliverability)
+RESEND_API_KEY=re_xxx                              # Resend → API Keys
+MAIL_FROM=The Old World League <hello@yourclub.com>  # address on a domain verified in Resend
+
+# Option B — Gmail SMTP
+GMAIL_USER=youraddress@gmail.com
+GMAIL_APP_PASSWORD=your-16-char-app-password       # Google account → App passwords
+# MAIL_FROM optional here; defaults to GMAIL_USER
+```
+
+The weekly digest schedule lives in `vercel.json` (`crons`). Both transports use
+the same code paths in `api/notify.js` and `api/digest.js` — only the env vars
+change.
 
 ## Build progress
 

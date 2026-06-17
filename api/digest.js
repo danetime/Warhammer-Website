@@ -6,17 +6,17 @@
 // If nothing happened that week, it sends nothing.
 //
 // Vercel Cron sends "Authorization: Bearer <CRON_SECRET>" when CRON_SECRET is
-// set, so we reject anything else. Required env (server-side, in Vercel):
-//   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GMAIL_USER, GMAIL_APP_PASSWORD
+// set, so we reject anything else. Transport lives in ./_mailer.js (Resend if
+// RESEND_API_KEY is set, otherwise Gmail SMTP). Required env (server-side):
+//   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+//   a transport: RESEND_API_KEY (+ MAIL_FROM) or GMAIL_USER + GMAIL_APP_PASSWORD
 //   CRON_SECRET (recommended), SITE_URL (optional)
 // ============================================================================
 import { createClient } from "@supabase/supabase-js";
-import nodemailer from "nodemailer";
+import { mailerConfigured, fromHeader, senderAddress, sendMail } from "./_mailer.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const GMAIL_USER = process.env.GMAIL_USER;
-const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
 const CRON_SECRET = process.env.CRON_SECRET;
 const SITE_URL = process.env.SITE_URL || "";
 
@@ -25,7 +25,7 @@ export default async function handler(req, res) {
     const auth = req.headers.authorization || "";
     if (auth !== `Bearer ${CRON_SECRET}`) return res.status(401).json({ error: "Unauthorized" });
   }
-  if (!SUPABASE_URL || !SERVICE_ROLE || !GMAIL_USER || !GMAIL_APP_PASSWORD)
+  if (!SUPABASE_URL || !SERVICE_ROLE || !mailerConfigured())
     return res.status(500).json({ error: "Email is not configured on the server." });
 
   const db = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
@@ -65,8 +65,7 @@ export default async function handler(req, res) {
     }
     if (to.length === 0) return res.status(200).json({ ok: true, skipped: "no recipients" });
 
-    const transport = nodemailer.createTransport({ service: "gmail", auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD } });
-    await transport.sendMail({ from: `"${SITE_NAME}" <${GMAIL_USER}>`, to: GMAIL_USER, bcc: to, subject: `${SITE_NAME} — this week`, text });
+    await sendMail({ from: fromHeader(SITE_NAME), to: senderAddress(), bcc: to, subject: `${SITE_NAME} — this week`, text });
     return res.status(200).json({ ok: true, sent: to.length, photos: nPhotos, reports: nReports });
   } catch (e) {
     return res.status(500).json({ error: "Digest failed.", detail: String((e && e.message) || e) });

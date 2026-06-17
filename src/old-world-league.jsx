@@ -38,6 +38,22 @@ const today = () => new Date().toISOString().slice(0, 10);
 /* App version — shown in the footer. Bump on each release. */
 const VERSION = "1.0.0";
 
+/* Changelog — newest first. Add an entry whenever you bump VERSION above.
+   Shown in a pop-up when you click the version number in the footer. */
+const CHANGELOG = [
+  {
+    version: "1.0.0",
+    date: "2026-06-17",
+    notes: [
+      "Committed army lists — lock in the list you played so armies can't be tailored between rounds, sealed with a \"Committed\" wax stamp.",
+      "Click any profile picture to enlarge it in a pop-up.",
+      "Rename uploaded photos after the fact, for the ones folk forget to name.",
+      "Fixed transparent PNG emblems appearing on a black background when uploaded to the leagues.",
+      "Version number now shown in the footer — click it to open this changelog.",
+    ],
+  },
+];
+
 /* ---------- profiles (Supabase) -> the shape the UI expects ----------
    The DB stores snake_case; the UI expects { name, faction, isAdmin }. */
 const mapProfile = (p) =>
@@ -437,15 +453,41 @@ const Modal = ({ title, onClose, children }) => (
   </div>
 );
 
-/* ---------- site footer (with the running version number) ---------- */
-const SiteFooter = () => (
-  <footer className="border-t border-stone-300 py-4 text-center">
-    <p className="f-disp text-[10px] uppercase tracking-widest text-stone-400">
-      Sigmar protects · No Age of Sigmar beyond this point
-    </p>
-    <p className="f-disp mt-1 text-[10px] uppercase tracking-widest text-stone-400/80">v{VERSION}</p>
-  </footer>
+/* ---------- changelog (opened by clicking the version number in the footer) ---------- */
+const ChangelogModal = ({ onClose }) => (
+  <Modal title="Changelog" onClose={onClose}>
+    <div className="space-y-5">
+      {CHANGELOG.map((rel) => (
+        <div key={rel.version}>
+          <div className="flex items-baseline justify-between border-b border-stone-300 pb-1">
+            <h4 className="f-disp text-sm font-bold uppercase tracking-wide text-red-950">v{rel.version}</h4>
+            <span className="text-[11px] italic text-stone-500">{fmtDate(rel.date)}</span>
+          </div>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-stone-700">
+            {rel.notes.map((n, i) => <li key={i}>{n}</li>)}
+          </ul>
+        </div>
+      ))}
+    </div>
+  </Modal>
 );
+
+/* ---------- site footer (with the running version number) ---------- */
+const SiteFooter = () => {
+  const [showLog, setShowLog] = useState(false);
+  return (
+    <footer className="border-t border-stone-300 py-4 text-center">
+      <p className="f-disp text-[10px] uppercase tracking-widest text-stone-400">
+        Sigmar protects · No Age of Sigmar beyond this point
+      </p>
+      <button onClick={() => setShowLog(true)} title="View changelog"
+        className="f-disp mt-1 text-[10px] uppercase tracking-widest text-stone-400/80 transition-colors hover:text-amber-700 hover:underline">
+        v{VERSION}
+      </button>
+      {showLog && <ChangelogModal onClose={() => setShowLog(false)} />}
+    </footer>
+  );
+};
 
 /* ---------- click-to-enlarge image overlay (profile pictures) ---------- */
 const ImagePopup = ({ src, alt, onClose }) => (

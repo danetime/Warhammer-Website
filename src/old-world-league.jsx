@@ -47,7 +47,7 @@ const CHANGELOG = [
     notes: [
       "Committed army lists — lock in the list you played so armies can't be tailored between rounds, sealed with a \"Committed\" wax stamp.",
       "Click any profile picture to enlarge it in a pop-up.",
-      "Member surnames on profiles, styled to their army — \"House Breach\" for the Empire, \"Clan Breach\" for Skaven — so a username ties to a real person. Set by the Grand Marshal.",
+      "Member surnames on profiles, styled to their army — e.g. \"Danetime of House Breach\" (Empire) or \"Danetime of Clan Breach\" (Skaven) — so a username ties to a real person. Set by the Grand Marshal.",
       "Rename uploaded photos after the fact, for the ones folk forget to name.",
       "Fixed transparent PNG emblems appearing on a black background when uploaded to the leagues.",
       "Version number now shown in the footer — click it to open this changelog.",
@@ -1056,12 +1056,9 @@ function ProfilePage({ ctx }) {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <h1 className="f-black flex items-center gap-2 text-3xl leading-tight text-red-950 sm:text-4xl">
-                    <span className="break-words">{who}</span>
+                    <span className="break-words">{who}{member && member.surname && <span className="text-amber-800"> of {houseName(member.faction, member.surname)}</span>}</span>
                     {isChamp && <Crown size={22} className="shrink-0 text-amber-600" title="Champion of the Old World" />}
                   </h1>
-                  {member && member.surname && (
-                    <p className="f-disp text-sm font-bold tracking-wide text-amber-800">{houseName(member.faction, member.surname)}</p>
-                  )}
                   <p className="f-disp text-sm italic text-stone-600">{rk.army} · {rk.title}{!member ? " · not on the muster roll" : ""}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -1222,7 +1219,7 @@ function ProfilePage({ ctx }) {
                 <Inp value={editSurname} onChange={(e) => setEditSurname(e.target.value)} placeholder="e.g. Breach" maxLength={40} />
                 <p className="mt-1 text-[11px] italic text-stone-500">
                   {editSurname.trim()
-                    ? <>Shown on the profile as <span className="font-bold not-italic text-amber-800">{houseName(editArmy || member.faction, editSurname)}</span></>
+                    ? <>Shown on the profile as <span className="font-bold not-italic text-amber-800">{who} of {houseName(editArmy || member.faction, editSurname)}</span></>
                     : "Helps tie a username to a real person, styled to their army."}
                 </p>
               </div>

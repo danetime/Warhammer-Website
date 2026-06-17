@@ -109,6 +109,11 @@ export const db = {
       notes: f.notes, kind: f.kind || "friendly", page_id: f.pageId || null, scenario: f.scenario || null,
       round: f.round ?? null,
     }),
+    update: (id, f) => supabase.from("fixtures").update({
+      player_a: f.playerA, player_b: f.playerB, date: f.date || null, points: f.points,
+      notes: f.notes, kind: f.kind || "friendly", page_id: f.pageId || null, scenario: f.scenario || null,
+      round: f.round ?? null,
+    }).eq("id", id),
     remove: (id) => supabase.from("fixtures").delete().eq("id", id),
   },
   reports: {

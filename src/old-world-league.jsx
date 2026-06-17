@@ -2264,8 +2264,10 @@ function BattlesTab({ ctx }) {
   const { user, memberNames, fixtures, reports, pages, db, reload } = ctx;
   const navigate = useNavigate();
   const [showFx, setShowFx] = useState(false);
+  const [editingFx, setEditingFx] = useState(null); // fixture id while editing; null when scheduling new
   const [showRp, setShowRp] = useState(false);
-  const [fx, setFx] = useState({ playerA: "", playerB: "", date: today(), points: "1500", kind: "friendly", pageId: "", scenario: "", notes: "" });
+  const blankFx = () => ({ playerA: "", playerB: "", date: today(), points: "1500", kind: "friendly", pageId: "", scenario: "", notes: "" });
+  const [fx, setFx] = useState(blankFx());
   const blankReport = () => ({
     playerA: "", playerB: "", armyA: "", armyB: "", date: today(), points: "1500",
     winner: "A", margin: "victory", ranked: true, score: "", moment: "", shame: [],
@@ -2278,15 +2280,26 @@ function BattlesTab({ ctx }) {
   // typos or casing, and lets us refuse names that aren't real members.
   const canonName = (s) => (memberNames || []).find((n) => n.toLowerCase() === (s || "").trim().toLowerCase()) || "";
 
-  const addFixture = async () => {
+  const openAddFx = () => { setErr(""); setEditingFx(null); setFx(blankFx()); setShowFx(true); };
+  const openEditFx = (f) => {
+    setErr(""); setEditingFx(f.id);
+    setFx({
+      playerA: f.playerA || "", playerB: f.playerB || "", date: f.date || today(),
+      points: f.points || "", kind: f.kind || "friendly", pageId: f.pageId || "",
+      scenario: f.scenario || "", notes: f.notes || "", round: f.round, // round carried through invisibly
+    });
+    setShowFx(true);
+  };
+  const closeFx = () => { setShowFx(false); setEditingFx(null); setFx(blankFx()); };
+  const saveFixture = async () => {
     setErr("");
     if (!fx.playerA.trim() || !fx.playerB.trim()) { setErr("Name both combatants."); return; }
     const a = canonName(fx.playerA), b = canonName(fx.playerB);
     if (!a || !b) { setErr("“" + (a ? fx.playerB : fx.playerA).trim() + "” isn’t a registered member — pick a name from the list."); return; }
-    await db.fixtures.add({ ...fx, playerA: a, playerB: b });
+    if (editingFx) await db.fixtures.update(editingFx, { ...fx, playerA: a, playerB: b });
+    else await db.fixtures.add({ ...fx, playerA: a, playerB: b });
     await reload.fixtures();
-    setFx({ playerA: "", playerB: "", date: today(), points: "1500", kind: "friendly", pageId: "", scenario: "", notes: "" });
-    setShowFx(false);
+    closeFx();
   };
   const delFixture = async (id) => { await db.fixtures.remove(id); await reload.fixtures(); };
   const saveRoundNote = async (pg, k, val) => {
@@ -2325,7 +2338,7 @@ function BattlesTab({ ctx }) {
 
   return (
     <div>
-      <H icon={CalendarDays} right={user.isAdmin && <B small kind="gold" onClick={() => { setErr(""); setShowFx(true); }}><Plus size={12} /> Schedule battle</B>}>
+      <H icon={CalendarDays} right={user.isAdmin && <B small kind="gold" onClick={openAddFx}><Plus size={12} /> Schedule battle</B>}>
         Scheduled battles
       </H>
       {sortedFixtures.length === 0 ? (
@@ -2338,7 +2351,10 @@ function BattlesTab({ ctx }) {
               <p className="text-xs italic text-stone-500">{fmtDate(f.date)} · {competitionLabel(pages, f)}{f.points ? " · " + f.points + " pts" : ""}{f.scenario ? " · " + f.scenario : ""}{f.notes ? " · " + f.notes : ""}</p>
             </div>
             {user.isAdmin && (
-              <button onClick={() => delFixture(f.id)} className="text-stone-400 hover:text-red-800"><Trash2 size={14} /></button>
+              <div className="flex shrink-0 items-center gap-2">
+                <button onClick={() => openEditFx(f)} title="Edit this fixture" className="text-stone-400 hover:text-amber-700"><Pencil size={14} /></button>
+                <button onClick={() => delFixture(f.id)} title="Delete this fixture" className="text-stone-400 hover:text-red-800"><Trash2 size={14} /></button>
+              </div>
             )}
           </Card>
         );
@@ -2447,7 +2463,7 @@ function BattlesTab({ ctx }) {
       )}
 
       {showFx && (
-        <Modal title="Schedule a battle" onClose={() => setShowFx(false)}>
+        <Modal title={editingFx ? "Edit fixture" : "Schedule a battle"} onClose={closeFx}>
           <div className="space-y-3">
             <MemberPicker members={memberNames} placeholder="Combatant A" value={fx.playerA} onChange={(v) => setFx({ ...fx, playerA: v })} />
             <MemberPicker members={memberNames} placeholder="Combatant B" value={fx.playerB} onChange={(v) => setFx({ ...fx, playerB: v })} />
@@ -2471,7 +2487,7 @@ function BattlesTab({ ctx }) {
             <Inp placeholder="Scenario (e.g. Dawn Attack)" value={fx.scenario} onChange={(e) => setFx({ ...fx, scenario: e.target.value })} />
             <Inp placeholder="Notes (venue, etc.)" value={fx.notes} onChange={(e) => setFx({ ...fx, notes: e.target.value })} />
             {err && <p className="f-body text-sm font-bold text-red-800">{err}</p>}
-            <B onClick={addFixture}><Plus size={14} /> Schedule</B>
+            <B onClick={saveFixture}><Plus size={14} /> {editingFx ? "Save changes" : "Schedule"}</B>
           </div>
         </Modal>
       )}

@@ -2203,9 +2203,8 @@ function CommittedLists({ ctx, pageId }) {
 
       <div className="space-y-2 rounded-sm border border-stone-300 bg-stone-50/60 p-2.5">
         <p className="f-disp text-[11px] font-bold uppercase tracking-wide text-stone-600">Lodge a list</p>
-        <datalist id={"wh-committed-" + pageId}>{(memberNames || []).map((n) => <option key={n} value={n} />)}</datalist>
         <div className="flex flex-col gap-2 sm:flex-row">
-          <div className="sm:flex-1"><Inp list={"wh-committed-" + pageId} placeholder="Player" value={player} onChange={(e) => setPlayer(e.target.value)} /></div>
+          <div className="sm:flex-1"><MemberPicker members={memberNames} placeholder="Player" value={player} onChange={(v) => setPlayer(v)} /></div>
           <div className="sm:w-36"><Inp placeholder="Points (e.g. 750)" value={points} onChange={(e) => setPoints(e.target.value)} /></div>
         </div>
         <TA rows={6} placeholder="Paste the army list here&hellip;" value={body} onChange={(e) => setBody(e.target.value)} />

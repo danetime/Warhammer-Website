@@ -112,6 +112,7 @@ supabase/
   admin.sql              admin_delete_member() — remove a member (account + profile)
   settings.sql           key/value site settings (editable name + next gathering)
   email-prefs.sql        per-member email opt-out (profiles.email_prefs)
+  committed-lists.sql    committed army lists per league/cup (sealed once locked)
 BACKLOG.md               Feature list & backlog (deferred ideas, tech debt)
 docs/
   build-guide.py         Generates the field-manual PDF (needs `pip install reportlab`)

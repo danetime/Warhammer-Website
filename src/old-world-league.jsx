@@ -36,11 +36,21 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const today = () => new Date().toISOString().slice(0, 10);
 
 /* App version — shown in the footer. Bump on each release. */
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 
 /* Changelog — newest first. Add an entry whenever you bump VERSION above.
    Shown in a pop-up when you click the version number in the footer. */
 const CHANGELOG = [
+  {
+    version: "1.1.0",
+    date: "2026-06-17",
+    notes: [
+      "Placeholder members — the Grand Marshal can enlist a player before they make an account, so their battles, Might and standings are tracked from the first game. They show on the muster roll marked “Unclaimed”. When the player signs up, the Grand Marshal links the placeholder to their account and the whole record carries over.",
+      "The Grand Marshal can now edit a scheduled battle, not just add or strike it — fix a date, points or opponent without re-creating the fixture.",
+      "Scheduled battles are grouped by league or cup first, then by round, so two leagues both on “Round 1” no longer pile under a single heading.",
+      "Behind the banners: club emails can now be sent from the League's own address, and a new audit confirms every record is locked down before the gates open to the public.",
+    ],
+  },
   {
     version: "1.0.0",
     date: "2026-06-17",

@@ -50,7 +50,7 @@ const CHANGELOG = [
       "Member surnames on profiles, styled to their army — e.g. \"Danetime of House Breach\" (Empire) or \"Danetime of Clan Breach\" (Skaven) — so a username ties to a real person. Set by the Grand Marshal.",
       "Rename uploaded photos after the fact, for the ones folk forget to name.",
       "Fixed transparent PNG emblems appearing on a black background when uploaded to the leagues.",
-      "Fixed the battle-report name boxes on mobile — the keyboard no longer hides after one letter, and the member suggestions work again.",
+      "Battle-report name boxes fixed on mobile — the keyboard no longer hides after one letter, a member picker drops down as you type, and a name that isn't a registered member is now rejected so the ladder can't fragment on typos.",
       "Version number now shown in the footer — click it to open this changelog.",
     ],
   },
@@ -2222,16 +2222,44 @@ function CommittedLists({ ctx, pageId }) {
 /* ============================================================
    BATTLES — fixtures (admin) + battle reports (anyone)
    ============================================================ */
-/* Name field for the battle/fixture forms. MUST live at module scope: a
-   component defined inside BattlesTab is re-created on every keystroke, which
-   remounts the <input> and drops focus — on iOS that hides the keyboard after
-   one letter and the datalist dropdown never appears. It links to the
-   "wh-members" datalist (rendered inside BattlesTab) by id. */
-const PlayerInput = ({ value, onChange, placeholder }) => (
-  <div>
-    <Inp list="wh-members" placeholder={placeholder} value={value} onChange={onChange} autoCorrect="off" autoCapitalize="words" />
-  </div>
-);
+/* Member autocomplete for the battle forms. Replaces the native <datalist>,
+   whose suggestion dropdown is unreliable on iOS Safari (it often shows nothing).
+   Filters the member list as you type and shows a tappable list that behaves the
+   same on every device. Must live at module scope so it isn't re-created — and
+   the input re-mounted, dropping focus — on every keystroke. Free text is still
+   allowed; the battle forms validate against the member list on save.
+   onChange is called with the string value (not a DOM event). */
+function MemberPicker({ value, onChange, placeholder, members }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef(null);
+  useEffect(() => {
+    const onDoc = (e) => { if (wrap.current && !wrap.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("pointerdown", onDoc);
+    return () => document.removeEventListener("pointerdown", onDoc);
+  }, []);
+  const q = (value || "").trim().toLowerCase();
+  const matches = (members || []).filter((n) => !q || n.toLowerCase().includes(q)).slice(0, 8);
+  const onlyExact = matches.length === 1 && matches[0].toLowerCase() === q;
+  return (
+    <div ref={wrap} className="relative">
+      <Inp placeholder={placeholder} value={value} autoCorrect="off" autoCapitalize="words"
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)} />
+      {open && matches.length > 0 && !onlyExact && (
+        <ul className="absolute left-0 right-0 z-30 mt-1 max-h-52 overflow-auto rounded-sm border border-amber-800/50 bg-stone-50 shadow-xl">
+          {matches.map((n) => (
+            <li key={n}>
+              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { onChange(n); setOpen(false); }}
+                className="f-body block w-full px-3 py-2 text-left text-sm text-stone-800 hover:bg-amber-100 active:bg-amber-200">
+                {n}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 function BattlesTab({ ctx }) {
   const { user, memberNames, fixtures, reports, pages, db, reload } = ctx;
@@ -2244,10 +2272,19 @@ function BattlesTab({ ctx }) {
     winner: "A", margin: "victory", ranked: true, score: "", moment: "", shame: [],
   });
   const [rp, setRp] = useState(blankReport());
+  const [err, setErr] = useState("");
+
+  // Resolve a typed name to the exact member name (case-insensitive), or "" if
+  // they're not on the muster roll. Keeps standings/ELO from fragmenting on
+  // typos or casing, and lets us refuse names that aren't real members.
+  const canonName = (s) => (memberNames || []).find((n) => n.toLowerCase() === (s || "").trim().toLowerCase()) || "";
 
   const addFixture = async () => {
-    if (!fx.playerA.trim() || !fx.playerB.trim()) return;
-    await db.fixtures.add(fx);
+    setErr("");
+    if (!fx.playerA.trim() || !fx.playerB.trim()) { setErr("Name both combatants."); return; }
+    const a = canonName(fx.playerA), b = canonName(fx.playerB);
+    if (!a || !b) { setErr("“" + (a ? fx.playerB : fx.playerA).trim() + "” isn’t a registered member — pick a name from the list."); return; }
+    await db.fixtures.add({ ...fx, playerA: a, playerB: b });
     await reload.fixtures();
     setFx({ playerA: "", playerB: "", date: today(), points: "1500", kind: "friendly", pageId: "", scenario: "", notes: "" });
     setShowFx(false);
@@ -2263,8 +2300,11 @@ function BattlesTab({ ctx }) {
   };
 
   const addReport = async () => {
-    if (!rp.playerA.trim() || !rp.playerB.trim()) return;
-    await db.reports.add({ ...rp, filedBy: user.name });
+    setErr("");
+    if (!rp.playerA.trim() || !rp.playerB.trim()) { setErr("Name both combatants."); return; }
+    const a = canonName(rp.playerA), b = canonName(rp.playerB);
+    if (!a || !b) { setErr("“" + (a ? rp.playerB : rp.playerA).trim() + "” isn’t a registered member — pick a name from the list."); return; }
+    await db.reports.add({ ...rp, playerA: a, playerB: b, filedBy: user.name });
     await reload.reports();
     setRp(blankReport());
     setShowRp(false);
@@ -2286,9 +2326,7 @@ function BattlesTab({ ctx }) {
 
   return (
     <div>
-      <datalist id="wh-members">{memberNames.map((n) => <option key={n} value={n} />)}</datalist>
-
-      <H icon={CalendarDays} right={user.isAdmin && <B small kind="gold" onClick={() => setShowFx(true)}><Plus size={12} /> Schedule battle</B>}>
+      <H icon={CalendarDays} right={user.isAdmin && <B small kind="gold" onClick={() => { setErr(""); setShowFx(true); }}><Plus size={12} /> Schedule battle</B>}>
         Scheduled battles
       </H>
       {sortedFixtures.length === 0 ? (
@@ -2340,7 +2378,7 @@ function BattlesTab({ ctx }) {
         );
       })()}
 
-      <H icon={Swords} right={<B small kind="gold" onClick={() => setShowRp(true)}><Plus size={12} /> File battle report</B>}>
+      <H icon={Swords} right={<B small kind="gold" onClick={() => { setErr(""); setShowRp(true); }}><Plus size={12} /> File battle report</B>}>
         Battle reports
       </H>
       {sortedReports.length === 0 ? (
@@ -2412,8 +2450,8 @@ function BattlesTab({ ctx }) {
       {showFx && (
         <Modal title="Schedule a battle" onClose={() => setShowFx(false)}>
           <div className="space-y-3">
-            <PlayerInput placeholder="Combatant A" value={fx.playerA} onChange={(e) => setFx({ ...fx, playerA: e.target.value })} />
-            <PlayerInput placeholder="Combatant B" value={fx.playerB} onChange={(e) => setFx({ ...fx, playerB: e.target.value })} />
+            <MemberPicker members={memberNames} placeholder="Combatant A" value={fx.playerA} onChange={(v) => setFx({ ...fx, playerA: v })} />
+            <MemberPicker members={memberNames} placeholder="Combatant B" value={fx.playerB} onChange={(v) => setFx({ ...fx, playerB: v })} />
             <div className="grid grid-cols-2 gap-3">
               <Inp type="date" value={fx.date} onChange={(e) => setFx({ ...fx, date: e.target.value })} />
               <Inp placeholder="Points (e.g. 1500)" value={fx.points} onChange={(e) => setFx({ ...fx, points: e.target.value })} />
@@ -2433,6 +2471,7 @@ function BattlesTab({ ctx }) {
             </div>
             <Inp placeholder="Scenario (e.g. Dawn Attack)" value={fx.scenario} onChange={(e) => setFx({ ...fx, scenario: e.target.value })} />
             <Inp placeholder="Notes (venue, etc.)" value={fx.notes} onChange={(e) => setFx({ ...fx, notes: e.target.value })} />
+            {err && <p className="f-body text-sm font-bold text-red-800">{err}</p>}
             <B onClick={addFixture}><Plus size={14} /> Schedule</B>
           </div>
         </Modal>
@@ -2442,8 +2481,8 @@ function BattlesTab({ ctx }) {
         <Modal title="File a battle report" onClose={() => setShowRp(false)}>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <PlayerInput placeholder="Combatant A" value={rp.playerA} onChange={(e) => setRp({ ...rp, playerA: e.target.value })} />
-              <PlayerInput placeholder="Combatant B" value={rp.playerB} onChange={(e) => setRp({ ...rp, playerB: e.target.value })} />
+              <MemberPicker members={memberNames} placeholder="Combatant A" value={rp.playerA} onChange={(v) => setRp({ ...rp, playerA: v })} />
+              <MemberPicker members={memberNames} placeholder="Combatant B" value={rp.playerB} onChange={(v) => setRp({ ...rp, playerB: v })} />
               <Sel value={rp.armyA} onChange={(e) => setRp({ ...rp, armyA: e.target.value })}>
                 <option value="">— Army A —</option>
                 {ARMIES.map((a) => <option key={a}>{a}</option>)}
@@ -2479,7 +2518,7 @@ function BattlesTab({ ctx }) {
               <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Hall of Infamy entries (optional)</p>
               {rp.shame.map((s, i) => (
                 <div key={i} className="mb-2 grid grid-cols-3 gap-2">
-                  <Inp list="wh-members" placeholder="Player" value={s.player} onChange={(e) => setShame(i, "player", e.target.value)} />
+                  <MemberPicker members={memberNames} placeholder="Player" value={s.player} onChange={(v) => setShame(i, "player", v)} />
                   <Inp type="number" placeholder="Ones rolled" value={s.ones} onChange={(e) => setShame(i, "ones", e.target.value)} />
                   <Inp placeholder="Context" value={s.note} onChange={(e) => setShame(i, "note", e.target.value)} />
                 </div>
@@ -2488,6 +2527,7 @@ function BattlesTab({ ctx }) {
                 <Skull size={12} /> Add shame
               </B>
             </div>
+            {err && <p className="f-body text-sm font-bold text-red-800">{err}</p>}
             <B onClick={addReport}><Swords size={14} /> File report</B>
           </div>
         </Modal>

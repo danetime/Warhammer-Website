@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef, Component } from "react";
+import { useState, useEffect, useRef, useId, Component } from "react";
 import { Routes, Route, useNavigate, useParams, Link } from "react-router-dom";
 import {
   Swords, Trophy, Scroll, Camera, HelpCircle, Beer, Crown, Plus, Trash2,
   Pencil, LogOut, Upload, ThumbsUp, ThumbsDown, X, Shield, Skull, CalendarDays, Save,
-  BookOpen, Link as LinkIcon, ChevronRight, Gavel, Award, Medal, Star, Utensils, ArrowLeft, Menu, Settings,
+  BookOpen, Link as LinkIcon, ChevronRight, ChevronDown, ChevronUp, Gavel, Award, Medal, Star, Utensils, ArrowLeft, Menu, Settings,
   Download, UserX, UserPlus, MessageSquare
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
@@ -538,16 +538,70 @@ const ImagePopup = ({ src, alt, onClose }) => (
   </div>
 );
 
-/* ---------- wax seal stamped on a committed army list ---------- */
-const CommittedSeal = ({ size = 60 }) => (
-  <div title="This army list is committed and sealed" style={{ width: size, height: size }}
-    className="relative inline-flex shrink-0 -rotate-6 items-center justify-center rounded-full border-2 border-double border-amber-200/80 bg-gradient-to-br from-red-700 to-red-950 text-amber-100 shadow-md">
-    <div className="flex flex-col items-center leading-none">
-      <Shield size={Math.round(size * 0.3)} className="text-amber-200" />
-      <span className="f-disp mt-0.5 text-[8px] font-bold uppercase tracking-wider">Committed</span>
+/* ---------- wax seal stamped on a committed army list ----------
+   Pure SVG (no image): a domed wax disc with an organic, turbulence-displaced
+   blob edge, a vignette for depth, a double gold rim struck crisp on top, and
+   "COMMITTED" curved around the rim via <textPath> with the shield in the
+   middle. Tilted a touch so it reads as hand-stamped. */
+const CommittedSeal = ({ size = 64 }) => {
+  const uid = useId().replace(/[^a-z0-9]/gi, "");
+  return (
+    <div title="This army list is committed and sealed"
+      className="relative inline-flex shrink-0 -rotate-6 items-center justify-center drop-shadow-md"
+      style={{ width: size, height: size }}>
+      <svg viewBox="0 0 100 100" width={size} height={size} className="block">
+        <defs>
+          {/* domed wax body: highlight toward the upper-left, deepening to maroon at the rim */}
+          <radialGradient id={`wax${uid}`} cx="37%" cy="32%" r="75%">
+            <stop offset="0%" stopColor="#c11f1f" />
+            <stop offset="45%" stopColor="#991b1b" />
+            <stop offset="80%" stopColor="#7f1d1d" />
+            <stop offset="100%" stopColor="#490e0e" />
+          </radialGradient>
+          {/* soft sheen across the top-left for a waxy gloss */}
+          <radialGradient id={`sheen${uid}`} cx="34%" cy="27%" r="45%">
+            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.30" />
+            <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+          </radialGradient>
+          {/* vignette: darken the rim so the wax looks pressed/domed */}
+          <radialGradient id={`vig${uid}`} cx="50%" cy="50%" r="50%">
+            <stop offset="60%" stopColor="#2a0606" stopOpacity="0" />
+            <stop offset="100%" stopColor="#2a0606" stopOpacity="0.55" />
+          </radialGradient>
+          {/* organic wax-blob edge: wobble the disc outline with Perlin noise */}
+          <filter id={`rough${uid}`} x="-20%" y="-20%" width="140%" height="140%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.022" numOctaves="2" seed="7" result="n" />
+            <feDisplacementMap in="SourceGraphic" in2="n" scale="4" xChannelSelector="R" yChannelSelector="G" />
+          </filter>
+          <path id={`top${uid}`} d="M 9,50 A 41,41 0 0,1 91,50" fill="none" />
+          <path id={`bot${uid}`} d="M 9,50 A 41,41 0 0,0 91,50" fill="none" />
+        </defs>
+
+        {/* irregular wax blob (edge displaced by turbulence) */}
+        <g filter={`url(#rough${uid})`}>
+          <circle cx="50" cy="50" r="47" fill={`url(#wax${uid})`} stroke="#330909" strokeWidth="1.2" />
+          <circle cx="50" cy="50" r="47" fill={`url(#vig${uid})`} />
+        </g>
+        {/* crisp struck detail on top of the wax */}
+        <circle cx="50" cy="50" r="44.5" fill="none" stroke="#f1cd72" strokeWidth="1.6" opacity="0.95" />
+        <circle cx="50" cy="50" r="29" fill="none" stroke="#f1cd72" strokeWidth="1" opacity="0.8" />
+        <circle cx="50" cy="50" r="44.5" fill={`url(#sheen${uid})`} />
+
+        <text className="f-disp" fill="#fce9bd" fontSize="14" fontWeight="700" letterSpacing="1" textAnchor="middle">
+          <textPath href={`#bot${uid}`} startOffset="50%">COMMITTED</textPath>
+        </text>
+        <text className="f-disp" fill="#f1cd72" fontSize="11" letterSpacing="3" textAnchor="middle">
+          <textPath href={`#top${uid}`} startOffset="50%">✦ ✦ ✦</textPath>
+        </text>
+      </svg>
+
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <Shield size={Math.round(size * 0.28)} className="text-amber-200"
+          style={{ filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.4))" }} />
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 /* ---------- honours / side-titles (admin-awarded) ---------- */
 const HONOUR_META = {
@@ -715,6 +769,7 @@ export default function App() {
   const [settings, setSettings] = useState({});
 
   const siteName = (typeof settings.site_name === "string" && settings.site_name.trim()) ? settings.site_name : "The Old World League";
+  const siteTagline = (typeof settings.site_tagline === "string" && settings.site_tagline.trim()) ? settings.site_tagline : "WHFB 7th Edition · By decree of the Grand Marshal";
 
   const refreshUsers = async () => {
     const us = await loadProfiles();
@@ -825,7 +880,7 @@ export default function App() {
     }
     return out;
   })();
-  const ctx = { user, users, placeholders, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, honours, availability, emblems, laurels, committedLists, settings, siteName, db, reload, reloadAll: loadAll, refreshUsers, refreshUser, logout };
+  const ctx = { user, users, placeholders, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, honours, availability, emblems, laurels, committedLists, settings, siteName, siteTagline, db, reload, reloadAll: loadAll, refreshUsers, refreshUser, logout };
 
   return (
     <ErrorBoundary>
@@ -841,7 +896,7 @@ export default function App() {
    HUB — masthead, tab nav, and the active tab
    ============================================================ */
 function Hub({ ctx }) {
-  const { user, logout, siteName } = ctx;
+  const { user, logout, siteName, siteTagline } = ctx;
   const [tab, setTab] = useState("home");
   const [menuOpen, setMenuOpen] = useState(false);
   const tabs = [
@@ -869,7 +924,7 @@ function Hub({ ctx }) {
             <div>
               <h1 className="f-black text-3xl leading-none text-amber-200 sm:text-4xl">{siteName}</h1>
               <p className="f-disp mt-1 text-[10px] uppercase tracking-widest text-amber-500/80 sm:text-xs">
-                WHFB 7th Edition · By decree of the Grand Marshal
+                {siteTagline}
               </p>
             </div>
             <div className="text-right">
@@ -932,7 +987,7 @@ function Hub({ ctx }) {
    PROFILE — a member's page: rank, ELO, per-army record, honours
    ============================================================ */
 function ProfilePage({ ctx }) {
-  const { user, users, placeholders, reports, champions, honours, emblems, logout, siteName, db, reload, refreshUsers, refreshUser } = ctx;
+  const { user, users, placeholders, reports, champions, honours, emblems, logout, siteName, siteTagline, db, reload, refreshUsers, refreshUser } = ctx;
   const navigate = useNavigate();
   const { name: rawName } = useParams();
   const name = rawName || "";
@@ -1042,7 +1097,7 @@ function ProfilePage({ ctx }) {
             <div>
               <Link to="/" className="f-black text-3xl leading-none text-amber-200 hover:text-amber-100 sm:text-4xl">{siteName}</Link>
               <p className="f-disp mt-1 text-[10px] uppercase tracking-widest text-amber-500/80 sm:text-xs">
-                WHFB 7th Edition · By decree of the Grand Marshal
+                {siteTagline}
               </p>
             </div>
             <div className="text-right">
@@ -1317,6 +1372,9 @@ function HomeTab({ ctx, go }) {
   const [awardWho, setAwardWho] = useState("");
   const [awardSeason, setAwardSeason] = useState("");
   const [showAvail, setShowAvail] = useState(false);
+  const [showAllFixtures, setShowAllFixtures] = useState(false);
+  const [showAllCalls, setShowAllCalls] = useState(false);
+  const [showAllRoster, setShowAllRoster] = useState(false);
   const [avDate, setAvDate] = useState(today());
   const [avKind, setAvKind] = useState("friendly");
   const [avPage, setAvPage] = useState("");
@@ -1444,7 +1502,7 @@ function HomeTab({ ctx, go }) {
           <Empty>No games scheduled for you yet.</Empty>
         ) : (
           <div className="space-y-2">
-            {myFixtures.map((f) => {
+            {(showAllFixtures ? myFixtures : myFixtures.slice(0, 3)).map((f) => {
               const oppSide = fixtureSide(pages, memberNames, f, "playerA").member === user.name ? "playerB" : "playerA";
               return (
                 <Card key={f.id} className="flex items-center justify-between gap-3 p-3">
@@ -1456,6 +1514,14 @@ function HomeTab({ ctx, go }) {
                 </Card>
               );
             })}
+            {myFixtures.length > 3 && (
+              <button onClick={() => setShowAllFixtures((v) => !v)}
+                className="f-disp flex w-full items-center justify-center gap-1 rounded-sm border border-dashed border-amber-700/40 py-1.5 text-[11px] uppercase tracking-wide text-amber-800 hover:bg-amber-100/50">
+                {showAllFixtures
+                  ? <><ChevronUp size={13} /> Show fewer</>
+                  : <><ChevronDown size={13} /> Show {myFixtures.length - 3} more</>}
+              </button>
+            )}
           </div>
         )}
 
@@ -1466,7 +1532,7 @@ function HomeTab({ ctx, go }) {
           <Empty>No one has posted availability. Be the first to call for a game.</Empty>
         ) : (
           <div className="space-y-2">
-            {openCalls.map((a) => {
+            {(showAllCalls ? openCalls : openCalls.slice(0, 3)).map((a) => {
               const accepted = (a.takers || []).includes(user.name);
               const mine = a.member === user.name;
               return (
@@ -1494,6 +1560,14 @@ function HomeTab({ ctx, go }) {
                 </Card>
               );
             })}
+            {openCalls.length > 3 && (
+              <button onClick={() => setShowAllCalls((v) => !v)}
+                className="f-disp flex w-full items-center justify-center gap-1 rounded-sm border border-dashed border-amber-700/40 py-1.5 text-[11px] uppercase tracking-wide text-amber-800 hover:bg-amber-100/50">
+                {showAllCalls
+                  ? <><ChevronUp size={13} /> Show fewer</>
+                  : <><ChevronDown size={13} /> Show {openCalls.length - 3} more</>}
+              </button>
+            )}
           </div>
         )}
 
@@ -1542,8 +1616,13 @@ function HomeTab({ ctx, go }) {
         )}
       </div>
 
-      <div>
-        <H icon={Trophy} right={<B small kind="ghost" onClick={() => go("faq")}>What's Might? <HelpCircle size={12} /></B>}>The Ladder</H>
+      <div className="lg:sticky lg:top-4 lg:self-start">
+        <H icon={Trophy} right={
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <B small kind="ghost" onClick={() => go("battles")}>Full standings <ChevronRight size={12} /></B>
+            <B small kind="ghost" onClick={() => go("faq")}>What's Might? <HelpCircle size={12} /></B>
+          </div>
+        }>The Ladder</H>
         {ladder.length === 0 ? (
           <Empty>No ranked battles yet. File a battle report and claim the top spot before Dan does.</Empty>
         ) : (
@@ -1585,10 +1664,10 @@ function HomeTab({ ctx, go }) {
         </Card>
 
         <H icon={Shield} right={user.isAdmin && <B small kind="gold" onClick={() => setShowAward(true)}><Crown size={12} /> Award crown</B>}>
-          Muster Roll
+          Muster Roll · {directory.length}
         </H>
         <Card className="divide-y divide-stone-200">
-          {directory.map((u) => {
+          {(showAllRoster ? directory : directory.slice(0, 8)).map((u) => {
             const rk = headlineRankFor(u, armyGames[u.name]);
             const isChamp = currentChamp && currentChamp.member === u.name;
             return (
@@ -1608,6 +1687,14 @@ function HomeTab({ ctx, go }) {
               </div>
             );
           })}
+          {directory.length > 8 && (
+            <button onClick={() => setShowAllRoster((v) => !v)}
+              className="f-disp flex w-full items-center justify-center gap-1 px-3 py-2 text-[11px] uppercase tracking-wide text-amber-800 hover:bg-amber-100/50">
+              {showAllRoster
+                ? <><ChevronUp size={13} /> Show fewer</>
+                : <><ChevronDown size={13} /> Show {directory.length - 8} more</>}
+            </button>
+          )}
         </Card>
 
         {(currentChamp || pastChamps.length > 0) && (
@@ -2203,7 +2290,7 @@ function CommittedLists({ ctx, pageId }) {
                   </p>
                   {!c.committed && <p className="f-disp text-[10px] uppercase tracking-wide text-stone-400">Draft &mdash; not yet sealed</p>}
                 </div>
-                {c.committed && <CommittedSeal size={54} />}
+                {c.committed && <CommittedSeal size={62} />}
               </div>
 
               {editId === c.id ? (
@@ -3473,17 +3560,19 @@ function PlaceholderManager({ ctx }) {
 }
 
 function AdminTab({ ctx }) {
-  const { user, users, fixtures, reports, pages, proposals, champions, laurels, honours, availability, quotes, faq, rules, photosIdx, emblems, siteName, db, reload, refreshUsers } = ctx;
+  const { user, users, fixtures, reports, pages, proposals, champions, laurels, honours, availability, quotes, faq, rules, photosIdx, emblems, siteName, siteTagline, db, reload, refreshUsers } = ctx;
   const navigate = useNavigate();
   const [showEmblems, setShowEmblems] = useState(false);
   const [busy, setBusy] = useState("");
   const [nameDraft, setNameDraft] = useState(siteName);
+  const [taglineDraft, setTaglineDraft] = useState(siteTagline);
   const [nameSaved, setNameSaved] = useState(false);
 
   if (!user.isAdmin) return <Empty>The Grand Marshal's chambers are barred to you.</Empty>;
 
-  const saveName = async () => {
+  const saveMasthead = async () => {
     await db.settings.set("site_name", nameDraft.trim() || "The Old World League");
+    await db.settings.set("site_tagline", taglineDraft.trim() || "WHFB 7th Edition · By decree of the Grand Marshal");
     await reload.settings();
     setNameSaved(true);
     setTimeout(() => setNameSaved(false), 1800);
@@ -3535,14 +3624,20 @@ function AdminTab({ ctx }) {
         {stat("Photos", photosIdx.length)}
       </div>
 
-      <H icon={Pencil}>Website name</H>
-      <Card className="p-3">
-        <div className="flex flex-col gap-2 sm:flex-row">
+      <H icon={Pencil}>Masthead</H>
+      <Card className="space-y-3 p-3">
+        <div>
+          <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Name</p>
           <Inp value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} placeholder="The Old World League"
-            onKeyDown={(e) => e.key === "Enter" && saveName()} />
-          <B kind="gold" onClick={saveName}><Save size={14} /> {nameSaved ? "Saved ✓" : "Save name"}</B>
+            onKeyDown={(e) => e.key === "Enter" && saveMasthead()} />
         </div>
-        <p className="mt-1.5 text-[11px] italic text-stone-500">Shown in the banner across the site. Leave blank to reset to “The Old World League”.</p>
+        <div>
+          <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Tagline</p>
+          <Inp value={taglineDraft} onChange={(e) => setTaglineDraft(e.target.value)} placeholder="WHFB 7th Edition · By decree of the Grand Marshal"
+            onKeyDown={(e) => e.key === "Enter" && saveMasthead()} />
+          <p className="mt-1.5 text-[11px] italic text-stone-500">The small line under the title, on every page. Leave either field blank to reset it to the default.</p>
+        </div>
+        <B kind="gold" onClick={saveMasthead}><Save size={14} /> {nameSaved ? "Saved ✓" : "Save masthead"}</B>
       </Card>
 
       <H icon={Shield}>Members</H>

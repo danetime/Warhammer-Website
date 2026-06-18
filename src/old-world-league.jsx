@@ -573,8 +573,8 @@ const CommittedSeal = ({ size = 64 }) => {
             <feTurbulence type="fractalNoise" baseFrequency="0.022" numOctaves="2" seed="7" result="n" />
             <feDisplacementMap in="SourceGraphic" in2="n" scale="4" xChannelSelector="R" yChannelSelector="G" />
           </filter>
-          <path id={`top${uid}`} d="M 10,50 A 40,40 0 0,1 90,50" fill="none" />
-          <path id={`bot${uid}`} d="M 10,50 A 40,40 0 0,0 90,50" fill="none" />
+          <path id={`top${uid}`} d="M 9,50 A 41,41 0 0,1 91,50" fill="none" />
+          <path id={`bot${uid}`} d="M 9,50 A 41,41 0 0,0 91,50" fill="none" />
         </defs>
 
         {/* irregular wax blob (edge displaced by turbulence) */}
@@ -584,19 +584,19 @@ const CommittedSeal = ({ size = 64 }) => {
         </g>
         {/* crisp struck detail on top of the wax */}
         <circle cx="50" cy="50" r="44.5" fill="none" stroke="#f1cd72" strokeWidth="1.6" opacity="0.95" />
-        <circle cx="50" cy="50" r="31.5" fill="none" stroke="#f1cd72" strokeWidth="1" opacity="0.8" />
+        <circle cx="50" cy="50" r="29" fill="none" stroke="#f1cd72" strokeWidth="1" opacity="0.8" />
         <circle cx="50" cy="50" r="44.5" fill={`url(#sheen${uid})`} />
 
-        <text className="f-disp" fill="#fce9bd" fontSize="11" fontWeight="700" letterSpacing="1.2" textAnchor="middle">
+        <text className="f-disp" fill="#fce9bd" fontSize="14" fontWeight="700" letterSpacing="1" textAnchor="middle">
           <textPath href={`#bot${uid}`} startOffset="50%">COMMITTED</textPath>
         </text>
-        <text className="f-disp" fill="#f1cd72" fontSize="9.5" letterSpacing="3" textAnchor="middle">
+        <text className="f-disp" fill="#f1cd72" fontSize="11" letterSpacing="3" textAnchor="middle">
           <textPath href={`#top${uid}`} startOffset="50%">✦ ✦ ✦</textPath>
         </text>
       </svg>
 
       <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-        <Shield size={Math.round(size * 0.3)} className="text-amber-200"
+        <Shield size={Math.round(size * 0.28)} className="text-amber-200"
           style={{ filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.4))" }} />
       </div>
     </div>

@@ -715,6 +715,7 @@ export default function App() {
   const [settings, setSettings] = useState({});
 
   const siteName = (typeof settings.site_name === "string" && settings.site_name.trim()) ? settings.site_name : "The Old World League";
+  const siteTagline = (typeof settings.site_tagline === "string" && settings.site_tagline.trim()) ? settings.site_tagline : "WHFB 7th Edition · By decree of the Grand Marshal";
 
   const refreshUsers = async () => {
     const us = await loadProfiles();
@@ -825,7 +826,7 @@ export default function App() {
     }
     return out;
   })();
-  const ctx = { user, users, placeholders, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, honours, availability, emblems, laurels, committedLists, settings, siteName, db, reload, reloadAll: loadAll, refreshUsers, refreshUser, logout };
+  const ctx = { user, users, placeholders, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, honours, availability, emblems, laurels, committedLists, settings, siteName, siteTagline, db, reload, reloadAll: loadAll, refreshUsers, refreshUser, logout };
 
   return (
     <ErrorBoundary>
@@ -841,7 +842,7 @@ export default function App() {
    HUB — masthead, tab nav, and the active tab
    ============================================================ */
 function Hub({ ctx }) {
-  const { user, logout, siteName } = ctx;
+  const { user, logout, siteName, siteTagline } = ctx;
   const [tab, setTab] = useState("home");
   const [menuOpen, setMenuOpen] = useState(false);
   const tabs = [
@@ -869,7 +870,7 @@ function Hub({ ctx }) {
             <div>
               <h1 className="f-black text-3xl leading-none text-amber-200 sm:text-4xl">{siteName}</h1>
               <p className="f-disp mt-1 text-[10px] uppercase tracking-widest text-amber-500/80 sm:text-xs">
-                WHFB 7th Edition · By decree of the Grand Marshal
+                {siteTagline}
               </p>
             </div>
             <div className="text-right">
@@ -932,7 +933,7 @@ function Hub({ ctx }) {
    PROFILE — a member's page: rank, ELO, per-army record, honours
    ============================================================ */
 function ProfilePage({ ctx }) {
-  const { user, users, placeholders, reports, champions, honours, emblems, logout, siteName, db, reload, refreshUsers, refreshUser } = ctx;
+  const { user, users, placeholders, reports, champions, honours, emblems, logout, siteName, siteTagline, db, reload, refreshUsers, refreshUser } = ctx;
   const navigate = useNavigate();
   const { name: rawName } = useParams();
   const name = rawName || "";
@@ -1042,7 +1043,7 @@ function ProfilePage({ ctx }) {
             <div>
               <Link to="/" className="f-black text-3xl leading-none text-amber-200 hover:text-amber-100 sm:text-4xl">{siteName}</Link>
               <p className="f-disp mt-1 text-[10px] uppercase tracking-widest text-amber-500/80 sm:text-xs">
-                WHFB 7th Edition · By decree of the Grand Marshal
+                {siteTagline}
               </p>
             </div>
             <div className="text-right">
@@ -1318,6 +1319,7 @@ function HomeTab({ ctx, go }) {
   const [awardSeason, setAwardSeason] = useState("");
   const [showAvail, setShowAvail] = useState(false);
   const [showAllFixtures, setShowAllFixtures] = useState(false);
+  const [showAllCalls, setShowAllCalls] = useState(false);
   const [avDate, setAvDate] = useState(today());
   const [avKind, setAvKind] = useState("friendly");
   const [avPage, setAvPage] = useState("");
@@ -1475,7 +1477,7 @@ function HomeTab({ ctx, go }) {
           <Empty>No one has posted availability. Be the first to call for a game.</Empty>
         ) : (
           <div className="space-y-2">
-            {openCalls.map((a) => {
+            {(showAllCalls ? openCalls : openCalls.slice(0, 3)).map((a) => {
               const accepted = (a.takers || []).includes(user.name);
               const mine = a.member === user.name;
               return (
@@ -1503,6 +1505,14 @@ function HomeTab({ ctx, go }) {
                 </Card>
               );
             })}
+            {openCalls.length > 3 && (
+              <button onClick={() => setShowAllCalls((v) => !v)}
+                className="f-disp flex w-full items-center justify-center gap-1 rounded-sm border border-dashed border-amber-700/40 py-1.5 text-[11px] uppercase tracking-wide text-amber-800 hover:bg-amber-100/50">
+                {showAllCalls
+                  ? <><ChevronUp size={13} /> Show fewer</>
+                  : <><ChevronDown size={13} /> Show {openCalls.length - 3} more</>}
+              </button>
+            )}
           </div>
         )}
 
@@ -3482,17 +3492,19 @@ function PlaceholderManager({ ctx }) {
 }
 
 function AdminTab({ ctx }) {
-  const { user, users, fixtures, reports, pages, proposals, champions, laurels, honours, availability, quotes, faq, rules, photosIdx, emblems, siteName, db, reload, refreshUsers } = ctx;
+  const { user, users, fixtures, reports, pages, proposals, champions, laurels, honours, availability, quotes, faq, rules, photosIdx, emblems, siteName, siteTagline, db, reload, refreshUsers } = ctx;
   const navigate = useNavigate();
   const [showEmblems, setShowEmblems] = useState(false);
   const [busy, setBusy] = useState("");
   const [nameDraft, setNameDraft] = useState(siteName);
+  const [taglineDraft, setTaglineDraft] = useState(siteTagline);
   const [nameSaved, setNameSaved] = useState(false);
 
   if (!user.isAdmin) return <Empty>The Grand Marshal's chambers are barred to you.</Empty>;
 
-  const saveName = async () => {
+  const saveMasthead = async () => {
     await db.settings.set("site_name", nameDraft.trim() || "The Old World League");
+    await db.settings.set("site_tagline", taglineDraft.trim() || "WHFB 7th Edition · By decree of the Grand Marshal");
     await reload.settings();
     setNameSaved(true);
     setTimeout(() => setNameSaved(false), 1800);
@@ -3544,14 +3556,20 @@ function AdminTab({ ctx }) {
         {stat("Photos", photosIdx.length)}
       </div>
 
-      <H icon={Pencil}>Website name</H>
-      <Card className="p-3">
-        <div className="flex flex-col gap-2 sm:flex-row">
+      <H icon={Pencil}>Masthead</H>
+      <Card className="space-y-3 p-3">
+        <div>
+          <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Name</p>
           <Inp value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} placeholder="The Old World League"
-            onKeyDown={(e) => e.key === "Enter" && saveName()} />
-          <B kind="gold" onClick={saveName}><Save size={14} /> {nameSaved ? "Saved ✓" : "Save name"}</B>
+            onKeyDown={(e) => e.key === "Enter" && saveMasthead()} />
         </div>
-        <p className="mt-1.5 text-[11px] italic text-stone-500">Shown in the banner across the site. Leave blank to reset to “The Old World League”.</p>
+        <div>
+          <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Tagline</p>
+          <Inp value={taglineDraft} onChange={(e) => setTaglineDraft(e.target.value)} placeholder="WHFB 7th Edition · By decree of the Grand Marshal"
+            onKeyDown={(e) => e.key === "Enter" && saveMasthead()} />
+          <p className="mt-1.5 text-[11px] italic text-stone-500">The small line under the title, on every page. Leave either field blank to reset it to the default.</p>
+        </div>
+        <B kind="gold" onClick={saveMasthead}><Save size={14} /> {nameSaved ? "Saved ✓" : "Save masthead"}</B>
       </Card>
 
       <H icon={Shield}>Members</H>

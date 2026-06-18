@@ -3,32 +3,30 @@
 Running list of things we want to do but haven't built yet, so nothing gets
 lost between sessions. Newest ideas at the top of each section.
 
-## In progress
-
-- **Email notifications** (Gmail SMTP transport for v1). Alerts for:
-  1. New availability posted → all members (opt-out)
-  2. Your slot/challenge accepted → just you
-  3. New gathering published → all members (opt-out)
-  4. Weekly digest (new photos, etc.) → Vercel Cron
-
 ## Planned / ideas
 
-- **Resend as an email transport** — swap or add alongside Gmail SMTP once
-  volume grows or we want a club-domain "from" address and better
-  deliverability. The notify functions are written so only the transport
-  changes. (Logged from the email-notifications discussion.)
-- **Club email domain** — a proper `from` address (e.g. hello@theoldworld…)
-  instead of a personal Gmail, with SPF/DKIM. Pairs with Resend.
-- **Fixture editing** — currently fixtures can be added (auto, manual) or
-  deleted, but not edited; add an edit step so a date/points can be set later
-  without re-creating.
+- **Club email domain** — finish the proper `from` address. The code already
+  supports it: set `RESEND_API_KEY` + `MAIL_FROM` (see the README). The
+  remaining work is operational — register a club domain, verify it in Resend
+  and add the SPF/DKIM DNS records.
+- **Profile pages for placeholders** — a placeholder's record is viewable, but
+  could show more (head-to-head, army splits) and let the Grand Marshal set its
+  surname from the profile page rather than only the chambers.
 
 ## Tech debt / before going fully public
 
-- **Step 5 — RLS lockdown** (`supabase/rls.sql`): re-lock the core tables with
-  proper policies before the site is genuinely public. Today some tables may be
-  wide open.
-- **Cross-league round grouping** — the Battles tab groups scheduled fixtures by
-  round number across *all* leagues, so two leagues both running "Round 1" would
-  merge under one header. Group by league → round if we ever run leagues
-  concurrently.
+- **Run the lockdown before deploy** — every table now ships RLS in its
+  migration and `supabase/rls-check.sql` audits coverage; the remaining task is
+  procedural: run all migrations on the production project and confirm
+  `rls-check.sql` reports nothing open before opening the gates.
+- **Carry names into league/cup tables** — `rewrite_member_name()` (used by
+  rename and placeholder-merge) deliberately leaves `pages.rows` alone, so a
+  manually-typed name in a league table or cup bracket isn't rewritten. Admin
+  can edit it in place; revisit if that becomes fiddly.
+
+## Shipped
+
+- **v1.1** — placeholder members (+ link-to-account merge), fixture editing,
+  per-competition round grouping, Resend email transport, RLS lockdown audit.
+- **v1.0** — committed army lists, email notifications (Gmail SMTP + weekly
+  digest), member surnames, the gallery, the changelog pop-up.

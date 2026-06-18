@@ -12,6 +12,12 @@
 --     champions, FAQs, library entries, seal/strike motions, and change
 --     is_admin on profiles.
 --
+-- This file locks the CORE tables. Tables added later each ship their own RLS
+-- in their own migration: honours.sql, availability.sql, emblems.sql,
+-- hall-of-fame.sql, settings.sql, committed-lists.sql and placeholders.sql.
+-- After running them all, use rls-check.sql to confirm nothing is left open
+-- before the site goes public.
+--
 -- Run this once in the Supabase SQL Editor. Idempotent (safe to re-run).
 -- ============================================================================
 

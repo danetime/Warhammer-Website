@@ -51,14 +51,27 @@ reach the browser):
 ```
 SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key   # Supabase → Settings → API
-GMAIL_USER=youraddress@gmail.com
-GMAIL_APP_PASSWORD=your-16-char-app-password       # Google account → App passwords
 SITE_URL=https://your-site.vercel.app              # optional, for links
 CRON_SECRET=any-long-random-string                 # protects the weekly digest
 ```
 
-The weekly digest schedule lives in `vercel.json` (`crons`). Swapping Gmail for
-Resend later only touches the transport in `api/notify.js` and `api/digest.js`.
+…plus **one** email transport. The shared `api/_mailer.js` prefers Resend when
+`RESEND_API_KEY` is set, and otherwise falls back to Gmail SMTP:
+
+```
+# Option A — Resend (recommended for a club domain + deliverability)
+RESEND_API_KEY=re_xxx                              # Resend → API Keys
+MAIL_FROM=The Old World League <hello@yourclub.com>  # address on a domain verified in Resend
+
+# Option B — Gmail SMTP
+GMAIL_USER=youraddress@gmail.com
+GMAIL_APP_PASSWORD=your-16-char-app-password       # Google account → App passwords
+# MAIL_FROM optional here; defaults to GMAIL_USER
+```
+
+The weekly digest schedule lives in `vercel.json` (`crons`). Both transports use
+the same code paths in `api/notify.js` and `api/digest.js` — only the env vars
+change.
 
 ## Build progress
 
@@ -92,6 +105,7 @@ src/
     db.js                Data layer: load/CRUD + DB<->UI mapping, photo storage
     notify.js            Best-effort client trigger for email notifications
 api/                     Vercel serverless functions (server-side email)
+  _mailer.js             Shared email transport — Resend, else Gmail SMTP
   notify.js              Instant alerts: availability / accepted / gathering
   digest.js              Weekly digest (run by Vercel Cron — see vercel.json)
 supabase/
@@ -99,7 +113,8 @@ supabase/
   auth.sql               Step 3 profile trigger + first-user-admin (optional)
   disable-rls-dev.sql    Dev: turn RLS off while building
   storage-policies.sql   Allow members to upload to the photos bucket
-  rls.sql                Step 5 RLS policies (re-locks tables before deploy)
+  rls.sql                Step 5 RLS policies (re-locks core tables before deploy)
+  rls-check.sql          Read-only audit: confirms every table is locked down
   honours.sql            Member side-titles table + RLS (run after rls.sql)
   availability.sql       Availability board + fixture type/competition/scenario
   elo-margins.sql        Victory margins + casual (unranked) games
@@ -113,6 +128,7 @@ supabase/
   settings.sql           key/value site settings (editable name + next gathering)
   email-prefs.sql        per-member email opt-out (profiles.email_prefs)
   committed-lists.sql    committed army lists per league/cup (sealed once locked)
+  placeholders.sql       placeholder members + merge_placeholder() (link to an account)
 BACKLOG.md               Feature list & backlog (deferred ideas, tech debt)
 docs/
   build-guide.py         Generates the field-manual PDF (needs `pip install reportlab`)

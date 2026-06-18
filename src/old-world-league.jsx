@@ -4,7 +4,7 @@ import {
   Swords, Trophy, Scroll, Camera, HelpCircle, Beer, Crown, Plus, Trash2,
   Pencil, LogOut, Upload, ThumbsUp, ThumbsDown, X, Shield, Skull, CalendarDays, Save,
   BookOpen, Link as LinkIcon, ChevronRight, Gavel, Award, Medal, Star, Utensils, ArrowLeft, Menu, Settings,
-  Download, UserX, MessageSquare
+  Download, UserX, UserPlus, MessageSquare
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 import { db, photoUrl, emblemUrl, avatarUrl } from "./lib/db";
@@ -36,11 +36,21 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const today = () => new Date().toISOString().slice(0, 10);
 
 /* App version — shown in the footer. Bump on each release. */
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 
 /* Changelog — newest first. Add an entry whenever you bump VERSION above.
    Shown in a pop-up when you click the version number in the footer. */
 const CHANGELOG = [
+  {
+    version: "1.1.0",
+    date: "2026-06-17",
+    notes: [
+      "Placeholder members — the Grand Marshal can enlist a player before they make an account, so their battles, Might and standings are tracked from the first game. They show on the muster roll marked “Unclaimed”. When the player signs up, the Grand Marshal links the placeholder to their account and the whole record carries over.",
+      "The Grand Marshal can now edit a scheduled battle, not just add or strike it — fix a date, points or opponent without re-creating the fixture.",
+      "Scheduled battles are grouped by league or cup first, then by round, so two leagues both on “Round 1” no longer pile under a single heading.",
+      "Behind the banners: club emails can now be sent from the League's own address, and a new audit confirms every record is locked down before the gates open to the public.",
+    ],
+  },
   {
     version: "1.0.0",
     date: "2026-06-17",
@@ -701,6 +711,7 @@ export default function App() {
   const [emblems, setEmblems] = useState([]);
   const [laurels, setLaurels] = useState([]);
   const [committedLists, setCommittedLists] = useState([]);
+  const [placeholders, setPlaceholders] = useState([]);
   const [settings, setSettings] = useState({});
 
   const siteName = (typeof settings.site_name === "string" && settings.site_name.trim()) ? settings.site_name : "The Old World League";
@@ -719,16 +730,16 @@ export default function App() {
   // signed-in member changes (see effect below).
   const loadAll = async () => {
     try {
-      const [us, fx, rp, qt, fq, rl, pg, px, pr, ch, hn, av, em, lr, cl, st] = await Promise.all([
+      const [us, fx, rp, qt, fq, rl, pg, px, pr, ch, hn, av, em, lr, cl, ph, st] = await Promise.all([
         loadProfiles(), db.fixtures.list(), db.reports.list(), db.quotes.list(), db.faqs.list(),
         db.rules.list(), db.pages.list(), db.photos.list(), db.proposals.list(),
         db.champions.list(), db.honours.list(), db.availability.list(), db.emblems.list(),
-        db.laurels.list(), db.committedLists.list(), db.settings.get(),
+        db.laurels.list(), db.committedLists.list(), db.placeholders.list(), db.settings.get(),
       ]);
       setUsers(us); setFixtures(fx); setReports(rp); setQuotes(qt);
       setFaq(fq); setRules(rl); setPages(pg); setPhotosIdx(px);
       setProposals(pr); setChampions(ch); setHonours(hn); setAvailability(av); setEmblems(em);
-      setLaurels(lr); setCommittedLists(cl); setSettings(st);
+      setLaurels(lr); setCommittedLists(cl); setPlaceholders(ph); setSettings(st);
     } catch (e) { console.error("loadAll failed", e); }
   };
 
@@ -785,6 +796,7 @@ export default function App() {
     emblems: async () => setEmblems(await db.emblems.list()),
     laurels: async () => setLaurels(await db.laurels.list()),
     committedLists: async () => setCommittedLists(await db.committedLists.list()),
+    placeholders: async () => setPlaceholders(await db.placeholders.list()),
     settings: async () => setSettings(await db.settings.get()),
   };
 
@@ -801,8 +813,19 @@ export default function App() {
   }
   if (!user) return <LoginGate users={users} siteName={siteName} onAuthed={setUser} refreshUsers={refreshUsers} />;
 
-  const memberNames = Object.values(users).map((u) => u.name);
-  const ctx = { user, users, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, honours, availability, emblems, laurels, committedLists, settings, siteName, db, reload, refreshUsers, refreshUser, logout };
+  // Players known to the app = registered members + placeholders (the Grand
+  // Marshal tracks records before someone signs up). Deduped case-insensitively
+  // so a placeholder sharing a name with an as-yet-unlinked account appears once.
+  const memberNames = (() => {
+    const seen = new Set(); const out = [];
+    for (const n of [...Object.values(users).map((u) => u.name), ...placeholders.map((p) => p.name)]) {
+      const k = (n || "").toLowerCase();
+      if (!n || seen.has(k)) continue;
+      seen.add(k); out.push(n);
+    }
+    return out;
+  })();
+  const ctx = { user, users, placeholders, memberNames, fixtures, reports, quotes, faq, rules, pages, proposals, champions, photosIdx, honours, availability, emblems, laurels, committedLists, settings, siteName, db, reload, reloadAll: loadAll, refreshUsers, refreshUser, logout };
 
   return (
     <ErrorBoundary>
@@ -909,15 +932,21 @@ function Hub({ ctx }) {
    PROFILE — a member's page: rank, ELO, per-army record, honours
    ============================================================ */
 function ProfilePage({ ctx }) {
-  const { user, users, reports, champions, honours, emblems, logout, siteName, db, reload, refreshUsers, refreshUser } = ctx;
+  const { user, users, placeholders, reports, champions, honours, emblems, logout, siteName, db, reload, refreshUsers, refreshUser } = ctx;
   const navigate = useNavigate();
   const { name: rawName } = useParams();
   const name = rawName || "";
-  const member = Object.values(users).find((u) => u.name.toLowerCase() === name.toLowerCase());
+  const account = Object.values(users).find((u) => u.name.toLowerCase() === name.toLowerCase());
+  const placeholder = !account ? (placeholders || []).find((p) => p.name.toLowerCase() === name.toLowerCase()) : null;
+  const member = account || placeholder || null;
+  const isPlaceholder = !!placeholder; // tracked player without an account yet
   const who = member ? member.name : name;
 
   const games = gamesPlayedMap(reports);
-  const armyGames = gamesByArmyMap(reports, users);
+  // include placeholder factions so headline-rank attribution still works for them
+  const everyone = { ...users };
+  for (const p of (placeholders || [])) everyone["ph-" + p.id] = p;
+  const armyGames = gamesByArmyMap(reports, everyone);
   const myArmyGames = armyGames[who] || {};
   const standing = computeStandings(reports).find((r) => r.name === who);
   const rk = headlineRankFor(member, myArmyGames);
@@ -975,11 +1004,11 @@ function ProfilePage({ ctx }) {
     await reload.honours();
   };
 
-  const canEdit = !!member && (member.name === user.name || user.isAdmin);
+  const canEdit = !isPlaceholder && !!member && (member.name === user.name || user.isAdmin);
   const avatarSrc = member ? avatarUrl(member.avatarPath) : null;
   const mascotSrc = member ? avatarUrl(member.mascotPath) : null;
   const uploadImg = async (field, file) => {
-    if (!file || !member) return;
+    if (!file || !member || isPlaceholder) return;
     try {
       const dataURL = await compressImage(file, field === "avatar_path" ? 512 : 256, 0.85);
       const res = await db.profiles.setImage(member.id, field, dataURL);
@@ -987,12 +1016,12 @@ function ProfilePage({ ctx }) {
     } catch (e) { /* ignore */ }
   };
   const removeImg = async (field) => {
-    if (!member) return;
+    if (!member || isPlaceholder) return;
     await db.profiles.update(member.id, { [field]: null });
     await refreshUsers();
   };
   const saveProfile = async () => {
-    if (!member) return;
+    if (!member || isPlaceholder) return;
     if (editArmy && editArmy !== member.faction) await db.profiles.update(member.id, { faction: editArmy });
     if (user.isAdmin) {
       const newSurname = editSurname.trim();
@@ -1060,7 +1089,7 @@ function ProfilePage({ ctx }) {
                     <span className="break-words">{who}{member && member.surname && <span className="text-amber-800"> of {houseName(member.faction, member.surname)}</span>}</span>
                     {isChamp && <Crown size={22} className="shrink-0 text-amber-600" title="Champion of the Old World" />}
                   </h1>
-                  <p className="f-disp text-sm italic text-stone-600">{rk.army} · {rk.title}{!member ? " · not on the muster roll" : ""}</p>
+                  <p className="f-disp text-sm italic text-stone-600">{rk.army} · {rk.title}{isPlaceholder ? " · unclaimed placeholder" : (!member ? " · not on the muster roll" : "")}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {canEdit && member && (
@@ -1278,7 +1307,7 @@ function ProfilePage({ ctx }) {
    HOME — Town Square
    ============================================================ */
 function HomeTab({ ctx, go }) {
-  const { user, users, fixtures, reports, quotes, champions, photosIdx, honours, availability, pages, memberNames, db, reload, refreshUsers } = ctx;
+  const { user, users, placeholders, fixtures, reports, quotes, champions, photosIdx, honours, availability, pages, memberNames, db, reload, refreshUsers } = ctx;
   const navigate = useNavigate();
   const [newQuote, setNewQuote] = useState("");
   const [saidBy, setSaidBy] = useState("");
@@ -1295,7 +1324,15 @@ function HomeTab({ ctx, go }) {
 
   const ladder = computeStandings(reports);
   const shame = shameBoard(reports);
-  const armyGames = gamesByArmyMap(reports, users);
+  // Everyone with a record = members + placeholders. Placeholders that share a
+  // name with an account (an unlinked sign-up) are hidden so the roll shows once.
+  const everyone = { ...users };
+  for (const p of placeholders) everyone["ph-" + p.id] = p;
+  const directory = [
+    ...Object.values(users),
+    ...placeholders.filter((p) => !Object.values(users).some((u) => u.name.toLowerCase() === p.name.toLowerCase())),
+  ];
+  const armyGames = gamesByArmyMap(reports, everyone);
   const currentChamp = champions.find((c) => c.isCurrent) || null;
   const pastChamps = champions.filter((c) => !c.isCurrent).sort((a, b) => (b.awardedAt || 0) - (a.awardedAt || 0));
   const upcoming = [...fixtures]
@@ -1551,16 +1588,17 @@ function HomeTab({ ctx, go }) {
           Muster Roll
         </H>
         <Card className="divide-y divide-stone-200">
-          {Object.entries(users).map(([key, u]) => {
+          {directory.map((u) => {
             const rk = headlineRankFor(u, armyGames[u.name]);
             const isChamp = currentChamp && currentChamp.member === u.name;
             return (
-              <div key={key} className="flex items-center justify-between px-3 py-2">
+              <div key={u.name} className="flex items-center justify-between px-3 py-2">
                 <div className="min-w-0">
                   <p className="f-disp flex items-center gap-1.5 text-sm font-bold">
                     <button onClick={() => navigate("/member/" + encodeURIComponent(u.name))} className="truncate text-left hover:text-red-900 hover:underline">{u.name}</button>
                     {isChamp && <Crown size={12} className="shrink-0 text-amber-600" title="Champion of the Old World" />}
                     {u.isAdmin && <Gavel size={10} className="shrink-0 text-stone-400" title="Grand Marshal (admin)" />}
+                    {u.isPlaceholder && <span className="shrink-0 rounded-sm bg-stone-200 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-stone-500" title="Tracked by the Grand Marshal — no account yet">Unclaimed</span>}
                     <HonourBadges items={honours.filter((h) => h.member === u.name)} size={11} />
                   </p>
                   <p className="text-[11px] italic text-stone-500" title={rk.isMax ? "Top rank reached" : rk.toNext + " more " + rk.army + " game(s) to " + (RANK_TITLES[rk.army] || RANK_TITLES["The Empire"])[rk.tier]}>
@@ -2264,8 +2302,10 @@ function BattlesTab({ ctx }) {
   const { user, memberNames, fixtures, reports, pages, db, reload } = ctx;
   const navigate = useNavigate();
   const [showFx, setShowFx] = useState(false);
+  const [editingFx, setEditingFx] = useState(null); // fixture id while editing; null when scheduling new
   const [showRp, setShowRp] = useState(false);
-  const [fx, setFx] = useState({ playerA: "", playerB: "", date: today(), points: "1500", kind: "friendly", pageId: "", scenario: "", notes: "" });
+  const blankFx = () => ({ playerA: "", playerB: "", date: today(), points: "1500", kind: "friendly", pageId: "", scenario: "", notes: "" });
+  const [fx, setFx] = useState(blankFx());
   const blankReport = () => ({
     playerA: "", playerB: "", armyA: "", armyB: "", date: today(), points: "1500",
     winner: "A", margin: "victory", ranked: true, score: "", moment: "", shame: [],
@@ -2278,15 +2318,26 @@ function BattlesTab({ ctx }) {
   // typos or casing, and lets us refuse names that aren't real members.
   const canonName = (s) => (memberNames || []).find((n) => n.toLowerCase() === (s || "").trim().toLowerCase()) || "";
 
-  const addFixture = async () => {
+  const openAddFx = () => { setErr(""); setEditingFx(null); setFx(blankFx()); setShowFx(true); };
+  const openEditFx = (f) => {
+    setErr(""); setEditingFx(f.id);
+    setFx({
+      playerA: f.playerA || "", playerB: f.playerB || "", date: f.date || today(),
+      points: f.points || "", kind: f.kind || "friendly", pageId: f.pageId || "",
+      scenario: f.scenario || "", notes: f.notes || "", round: f.round, // round carried through invisibly
+    });
+    setShowFx(true);
+  };
+  const closeFx = () => { setShowFx(false); setEditingFx(null); setFx(blankFx()); };
+  const saveFixture = async () => {
     setErr("");
     if (!fx.playerA.trim() || !fx.playerB.trim()) { setErr("Name both combatants."); return; }
     const a = canonName(fx.playerA), b = canonName(fx.playerB);
     if (!a || !b) { setErr("“" + (a ? fx.playerB : fx.playerA).trim() + "” isn’t a registered member — pick a name from the list."); return; }
-    await db.fixtures.add({ ...fx, playerA: a, playerB: b });
+    if (editingFx) await db.fixtures.update(editingFx, { ...fx, playerA: a, playerB: b });
+    else await db.fixtures.add({ ...fx, playerA: a, playerB: b });
     await reload.fixtures();
-    setFx({ playerA: "", playerB: "", date: today(), points: "1500", kind: "friendly", pageId: "", scenario: "", notes: "" });
-    setShowFx(false);
+    closeFx();
   };
   const delFixture = async (id) => { await db.fixtures.remove(id); await reload.fixtures(); };
   const saveRoundNote = async (pg, k, val) => {
@@ -2325,7 +2376,7 @@ function BattlesTab({ ctx }) {
 
   return (
     <div>
-      <H icon={CalendarDays} right={user.isAdmin && <B small kind="gold" onClick={() => { setErr(""); setShowFx(true); }}><Plus size={12} /> Schedule battle</B>}>
+      <H icon={CalendarDays} right={user.isAdmin && <B small kind="gold" onClick={openAddFx}><Plus size={12} /> Schedule battle</B>}>
         Scheduled battles
       </H>
       {sortedFixtures.length === 0 ? (
@@ -2338,38 +2389,63 @@ function BattlesTab({ ctx }) {
               <p className="text-xs italic text-stone-500">{fmtDate(f.date)} · {competitionLabel(pages, f)}{f.points ? " · " + f.points + " pts" : ""}{f.scenario ? " · " + f.scenario : ""}{f.notes ? " · " + f.notes : ""}</p>
             </div>
             {user.isAdmin && (
-              <button onClick={() => delFixture(f.id)} className="text-stone-400 hover:text-red-800"><Trash2 size={14} /></button>
+              <div className="flex shrink-0 items-center gap-2">
+                <button onClick={() => openEditFx(f)} title="Edit this fixture" className="text-stone-400 hover:text-amber-700"><Pencil size={14} /></button>
+                <button onClick={() => delFixture(f.id)} title="Delete this fixture" className="text-stone-400 hover:text-red-800"><Trash2 size={14} /></button>
+              </div>
             )}
           </Card>
         );
-        const byRound = {}; const noRound = [];
-        for (const f of sortedFixtures) { if (f.round != null) (byRound[f.round] = byRound[f.round] || []).push(f); else noRound.push(f); }
-        const keys = Object.keys(byRound).map(Number).sort((a, b) => a - b);
+        // Group by competition first, then by round, so two leagues both running
+        // "Round 1" no longer collapse under a single shared header. Rounds carry
+        // a pageId (set by the scheduler); friendlies and roundless fixtures fall
+        // through to "Other battles".
+        const comps = new Map(); // pageId|"_" -> { page, rounds: { [round]: fixtures[] } }
+        const noRound = [];
+        for (const f of sortedFixtures) {
+          if (f.round == null) { noRound.push(f); continue; }
+          const key = f.pageId || "_";
+          if (!comps.has(key)) comps.set(key, { page: pages.find((p) => p.id === f.pageId) || null, rounds: {} });
+          const c = comps.get(key);
+          (c.rounds[f.round] = c.rounds[f.round] || []).push(f);
+        }
+        const compEntries = [...comps.values()].sort((a, b) => (a.page?.title || "~").localeCompare(b.page?.title || "~"));
+        const showCompHeads = compEntries.length > 1; // only label competitions when more than one is live
+        const roundBlock = (page, k, fixtures) => {
+          const note = page?.info?.rounds?.[k];
+          return (
+            <div key={(page?.id || "_") + ":" + k}>
+              <p className="f-disp mb-1 border-b border-amber-700/40 pb-0.5 text-[11px] font-bold uppercase tracking-widest text-amber-800">Round {k}</p>
+              {user.isAdmin && page ? (
+                <input
+                  defaultValue={note || ""}
+                  placeholder="Add a note for this round (e.g. 750 pts · special rules)…"
+                  onBlur={(e) => { if ((e.target.value || "").trim() !== (note || "")) saveRoundNote(page, k, e.target.value); }}
+                  className="field mb-2 w-full px-2 py-1 text-[11px] italic"
+                />
+              ) : note ? (
+                <p className="mb-2 text-[11px] italic text-stone-600">{note}</p>
+              ) : null}
+              <div className="space-y-2">{fixtures.map(fxCard)}</div>
+            </div>
+          );
+        };
         return (
           <div className="space-y-4">
-            {keys.map((k) => {
-              const pg = pages.find((p) => p.id === byRound[k][0]?.pageId);
-              const note = pg?.info?.rounds?.[k];
+            {compEntries.map((c) => {
+              const rkeys = Object.keys(c.rounds).map(Number).sort((a, b) => a - b);
               return (
-              <div key={k}>
-                <p className="f-disp mb-1 border-b border-amber-700/40 pb-0.5 text-[11px] font-bold uppercase tracking-widest text-amber-800">Round {k}</p>
-                {user.isAdmin && pg ? (
-                  <input
-                    defaultValue={note || ""}
-                    placeholder="Add a note for this round (e.g. 750 pts · special rules)…"
-                    onBlur={(e) => { if ((e.target.value || "").trim() !== (note || "")) saveRoundNote(pg, k, e.target.value); }}
-                    className="field mb-2 w-full px-2 py-1 text-[11px] italic"
-                  />
-                ) : note ? (
-                  <p className="mb-2 text-[11px] italic text-stone-600">{note}</p>
-                ) : null}
-                <div className="space-y-2">{byRound[k].map(fxCard)}</div>
-              </div>
+                <div key={c.page?.id || "_"} className="space-y-3">
+                  {showCompHeads && (
+                    <p className="f-black text-base leading-tight text-red-950">{c.page ? c.page.title : "Other fixtures"}</p>
+                  )}
+                  {rkeys.map((k) => roundBlock(c.page, k, c.rounds[k]))}
+                </div>
               );
             })}
             {noRound.length > 0 && (
               <div>
-                {keys.length > 0 && <p className="f-disp mb-2 border-b border-amber-700/40 pb-0.5 text-[11px] font-bold uppercase tracking-widest text-amber-800">Other battles</p>}
+                {comps.size > 0 && <p className="f-disp mb-2 border-b border-amber-700/40 pb-0.5 text-[11px] font-bold uppercase tracking-widest text-amber-800">Other battles</p>}
                 <div className="space-y-2">{noRound.map(fxCard)}</div>
               </div>
             )}
@@ -2447,7 +2523,7 @@ function BattlesTab({ ctx }) {
       )}
 
       {showFx && (
-        <Modal title="Schedule a battle" onClose={() => setShowFx(false)}>
+        <Modal title={editingFx ? "Edit fixture" : "Schedule a battle"} onClose={closeFx}>
           <div className="space-y-3">
             <MemberPicker members={memberNames} placeholder="Combatant A" value={fx.playerA} onChange={(v) => setFx({ ...fx, playerA: v })} />
             <MemberPicker members={memberNames} placeholder="Combatant B" value={fx.playerB} onChange={(v) => setFx({ ...fx, playerB: v })} />
@@ -2471,7 +2547,7 @@ function BattlesTab({ ctx }) {
             <Inp placeholder="Scenario (e.g. Dawn Attack)" value={fx.scenario} onChange={(e) => setFx({ ...fx, scenario: e.target.value })} />
             <Inp placeholder="Notes (venue, etc.)" value={fx.notes} onChange={(e) => setFx({ ...fx, notes: e.target.value })} />
             {err && <p className="f-body text-sm font-bold text-red-800">{err}</p>}
-            <B onClick={addFixture}><Plus size={14} /> Schedule</B>
+            <B onClick={saveFixture}><Plus size={14} /> {editingFx ? "Save changes" : "Schedule"}</B>
           </div>
         </Modal>
       )}
@@ -3279,6 +3355,123 @@ function FameTab({ ctx }) {
 /* ============================================================
    ADMIN — the Grand Marshal's chambers (admins only)
    ============================================================ */
+/* Placeholder members — admin tracks a player's record before they have an
+   account, then links the placeholder to their account once they sign up. */
+function PlaceholderManager({ ctx }) {
+  const { users, placeholders, memberNames, reports, db, reload, reloadAll } = ctx;
+  const navigate = useNavigate();
+  const [name, setName] = useState("");
+  const [faction, setFaction] = useState("The Empire");
+  const [surname, setSurname] = useState("");
+  const [note, setNote] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState("");
+  const [linking, setLinking] = useState(null); // the placeholder being linked, or null
+  const [linkTo, setLinkTo] = useState("");
+
+  const takenNames = new Set((memberNames || []).map((n) => n.toLowerCase()));
+  const accounts = Object.values(users).map((u) => u.name).sort((a, b) => a.localeCompare(b));
+  const games = gamesPlayedMap(reports);
+
+  const add = async () => {
+    setErr("");
+    const n = name.trim();
+    if (!n) { setErr("Give the placeholder a name."); return; }
+    if (takenNames.has(n.toLowerCase())) { setErr("“" + n + "” is already on the muster roll — pick a different name."); return; }
+    setBusy("add");
+    const res = await db.placeholders.add({ name: n, faction, surname: surname.trim(), note: note.trim() });
+    if (res && res.error) { setErr(res.error.message || "Could not add placeholder."); setBusy(""); return; }
+    await reload.placeholders();
+    setName(""); setFaction("The Empire"); setSurname(""); setNote(""); setBusy("");
+  };
+  const setPhFaction = async (id, f) => { await db.placeholders.update(id, { faction: f }); await reload.placeholders(); };
+  const remove = async (p) => {
+    if (!confirm("Remove placeholder “" + p.name + "”?\n\nTheir battle history stays in the records under that name; it simply stops being tracked as a player.")) return;
+    setBusy(p.id);
+    await db.placeholders.remove(p.id);
+    await reload.placeholders();
+    setBusy("");
+  };
+  const startLink = (p) => { setErr(""); setLinkTo(""); setLinking(p); };
+  const doLink = async () => {
+    if (!linking || !linkTo) return;
+    setBusy(linking.id); setErr("");
+    const res = await db.placeholders.merge(linking.id, linkTo);
+    if (res && res.error) { setErr(res.error.message || "Could not link placeholder."); setBusy(""); return; }
+    setLinking(null); setLinkTo("");
+    await reloadAll(); // a merge rewrites the name across many tables
+    setBusy("");
+  };
+
+  return (
+    <>
+      <H icon={UserPlus}>Placeholder members</H>
+      <p className="mb-3 max-w-2xl text-sm italic text-stone-600">
+        Track a player's record before they sign up. Placeholders appear in the muster roll, the pickers and the ladder just like members. When the player makes an account, link the placeholder to it to carry the whole history over.
+      </p>
+
+      <Card className="mb-3 space-y-2 p-3">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Inp placeholder="Name (e.g. Ollie)" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
+          <Sel value={faction} onChange={(e) => setFaction(e.target.value)}>
+            {ARMIES.map((a) => <option key={a}>{a}</option>)}
+          </Sel>
+          <Inp placeholder="Surname (optional, e.g. Breach)" value={surname} onChange={(e) => setSurname(e.target.value)} />
+          <Inp placeholder="Note (optional — only the Grand Marshal sees it)" value={note} onChange={(e) => setNote(e.target.value)} />
+        </div>
+        {err && !linking && <p className="f-body text-sm font-bold text-red-800">{err}</p>}
+        <B kind="gold" onClick={add} disabled={busy === "add"}><UserPlus size={14} /> {busy === "add" ? "Adding…" : "Add placeholder"}</B>
+      </Card>
+
+      {placeholders.length > 0 && (
+        <Card className="divide-y divide-stone-200">
+          {placeholders.map((p) => {
+            const n = games[p.name] || 0;
+            return (
+              <div key={p.id} className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="f-disp flex items-center gap-1.5 text-sm font-bold">
+                    <button onClick={() => navigate("/member/" + encodeURIComponent(p.name))} className="truncate text-left hover:text-red-900 hover:underline">{p.name}</button>
+                    <span className="shrink-0 rounded-sm bg-stone-200 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-stone-500">Unclaimed</span>
+                  </p>
+                  <p className="text-[11px] italic text-stone-500">{n} game{n === 1 ? "" : "s"} tracked{p.note ? " · " + p.note : ""}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select value={p.faction} onChange={(e) => setPhFaction(p.id, e.target.value)} title="Set this placeholder's army"
+                    className="f-body rounded-sm border border-stone-300 bg-white px-1.5 py-1 text-xs">
+                    {ARMIES.map((a) => <option key={a}>{a}</option>)}
+                  </select>
+                  <B small kind="ghost" onClick={() => startLink(p)} disabled={accounts.length === 0}><LinkIcon size={12} /> Link to member</B>
+                  <button onClick={() => remove(p)} disabled={busy === p.id}
+                    className="inline-flex items-center gap-1 rounded-sm border border-red-300 px-2 py-1 text-xs text-red-800 hover:bg-red-50 disabled:opacity-50">
+                    <UserX size={12} /> {busy === p.id ? "…" : "Remove"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </Card>
+      )}
+
+      {linking && (
+        <Modal title={"Link “" + linking.name + "” to a member"} onClose={() => { setLinking(null); setErr(""); }}>
+          <div className="space-y-3">
+            <p className="text-sm text-stone-600">
+              Every battle, standing and honour recorded under <span className="font-bold">{linking.name}</span> will be carried onto the chosen member's account, and the placeholder removed. This cannot be undone.
+            </p>
+            <Sel value={linkTo} onChange={(e) => setLinkTo(e.target.value)}>
+              <option value="">— choose the member —</option>
+              {accounts.map((nm) => <option key={nm} value={nm}>{nm}</option>)}
+            </Sel>
+            {err && <p className="f-body text-sm font-bold text-red-800">{err}</p>}
+            <B kind="gold" onClick={doLink} disabled={!linkTo || busy === linking.id}><LinkIcon size={14} /> {busy === linking.id ? "Linking…" : "Link & carry history over"}</B>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
 function AdminTab({ ctx }) {
   const { user, users, fixtures, reports, pages, proposals, champions, laurels, honours, availability, quotes, faq, rules, photosIdx, emblems, siteName, db, reload, refreshUsers } = ctx;
   const navigate = useNavigate();
@@ -3378,6 +3571,8 @@ function AdminTab({ ctx }) {
           </div>
         ))}
       </Card>
+
+      <PlaceholderManager ctx={ctx} />
 
       <H icon={Award}>Tools</H>
       <div className="flex flex-wrap gap-2">

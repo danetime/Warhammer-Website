@@ -11,18 +11,17 @@
 // client for content or recipients: it re-reads the record by id and derives
 // everything itself, after verifying the caller's session.
 //
-// Transport is Gmail SMTP (nodemailer). To swap to Resend/etc. later, only
-// makeTransport()/sendMail change. Required env (set in Vercel, server-side):
-//   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GMAIL_USER, GMAIL_APP_PASSWORD
+// Transport lives in ./_mailer.js — Resend if RESEND_API_KEY is set, otherwise
+// Gmail SMTP. Required env (set in Vercel, server-side):
+//   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+//   a transport: RESEND_API_KEY (+ MAIL_FROM) or GMAIL_USER + GMAIL_APP_PASSWORD
 //   SITE_URL (optional, for links in the email)
 // ============================================================================
 import { createClient } from "@supabase/supabase-js";
-import nodemailer from "nodemailer";
+import { mailerConfigured, fromHeader, senderAddress, sendMail } from "./_mailer.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const GMAIL_USER = process.env.GMAIL_USER;
-const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
 const SITE_URL = process.env.SITE_URL || "";
 
 const fmtDate = (d) => {
@@ -40,7 +39,7 @@ async function emailMap(db) {
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-  if (!SUPABASE_URL || !SERVICE_ROLE || !GMAIL_USER || !GMAIL_APP_PASSWORD)
+  if (!SUPABASE_URL || !SERVICE_ROLE || !mailerConfigured())
     return res.status(500).json({ error: "Email is not configured on the server." });
 
   let body = req.body;
@@ -63,8 +62,8 @@ export default async function handler(req, res) {
   const { data: nameRow } = await db.from("settings").select("value").eq("key", "site_name").maybeSingle();
   const SITE_NAME = (typeof nameRow?.value === "string" && nameRow.value.trim()) ? nameRow.value : "The Old World League";
 
-  const transport = nodemailer.createTransport({ service: "gmail", auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD } });
-  const from = `"${SITE_NAME}" <${GMAIL_USER}>`;
+  const from = fromHeader(SITE_NAME);
+  const self = senderAddress();
   const footer = `\n\n— ${SITE_NAME}${SITE_URL ? "\n" + SITE_URL : ""}`;
 
   // email every member (honouring their opt-out), as BCC to protect addresses
@@ -77,7 +76,7 @@ export default async function handler(req, res) {
       if ((p.email_prefs || {})[prefKey] === false) continue;
       if (emails[p.id]) to.push(emails[p.id]);
     }
-    if (to.length) await transport.sendMail({ from, to: GMAIL_USER, bcc: to, subject, text: text + footer });
+    if (to.length) await sendMail({ from, to: self, bcc: to, subject, text: text + footer });
     return to.length;
   }
 
@@ -106,7 +105,7 @@ export default async function handler(req, res) {
       const emails = await emailMap(db);
       const to = poster ? emails[poster.id] : null;
       if (to) {
-        await transport.sendMail({
+        await sendMail({
           from, to,
           subject: `${myName} answered your call to arms`,
           text: `${myName} has accepted your game for ${fmtDate(a.date)}.\n\nA fixture has been scheduled — see you across the table.` + footer,

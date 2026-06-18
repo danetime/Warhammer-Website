@@ -65,6 +65,10 @@ const fromCommittedList = (r) => ({
   body: r.body || "", committed: !!r.committed, committedAt: ts(r.committed_at),
   author: r.author, created: ts(r.created_at),
 });
+const fromPlaceholder = (r) => ({
+  id: r.id, name: r.display_name, faction: r.faction, surname: r.surname || "",
+  note: r.note || "", joined: r.joined, created: ts(r.created_at), isPlaceholder: true,
+});
 
 const list = async (table, mapper) => {
   try {
@@ -109,6 +113,11 @@ export const db = {
       notes: f.notes, kind: f.kind || "friendly", page_id: f.pageId || null, scenario: f.scenario || null,
       round: f.round ?? null,
     }),
+    update: (id, f) => supabase.from("fixtures").update({
+      player_a: f.playerA, player_b: f.playerB, date: f.date || null, points: f.points,
+      notes: f.notes, kind: f.kind || "friendly", page_id: f.pageId || null, scenario: f.scenario || null,
+      round: f.round ?? null,
+    }).eq("id", id),
     remove: (id) => supabase.from("fixtures").delete().eq("id", id),
   },
   reports: {
@@ -243,6 +252,17 @@ export const db = {
       } catch (e) { console.error("load settings threw", e); return {}; }
     },
     set: (key, value) => supabase.from("settings").upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: "key" }),
+  },
+  placeholders: {
+    list: () => list("placeholder_members", fromPlaceholder),
+    add: (p) => supabase.from("placeholder_members").insert({
+      display_name: p.name, faction: p.faction || "The Empire",
+      surname: p.surname || null, note: p.note || null,
+    }).select().single(),
+    update: (id, patch) => supabase.from("placeholder_members").update(patch).eq("id", id),
+    remove: (id) => supabase.from("placeholder_members").delete().eq("id", id),
+    // Tie a placeholder to a registered account; carries history over server-side.
+    merge: (id, targetName) => supabase.rpc("merge_placeholder", { p_id: id, target_name: targetName }),
   },
   profiles: {
     update: (id, patch) => supabase.from("profiles").update(patch).eq("id", id),

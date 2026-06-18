@@ -3,7 +3,7 @@ import { Routes, Route, useNavigate, useParams, Link } from "react-router-dom";
 import {
   Swords, Trophy, Scroll, Camera, HelpCircle, Beer, Crown, Plus, Trash2,
   Pencil, LogOut, Upload, ThumbsUp, ThumbsDown, X, Shield, Skull, CalendarDays, Save,
-  BookOpen, Link as LinkIcon, ChevronRight, Gavel, Award, Medal, Star, Utensils, ArrowLeft, Menu, Settings,
+  BookOpen, Link as LinkIcon, ChevronRight, ChevronDown, ChevronUp, Gavel, Award, Medal, Star, Utensils, ArrowLeft, Menu, Settings,
   Download, UserX, UserPlus, MessageSquare
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
@@ -1317,6 +1317,7 @@ function HomeTab({ ctx, go }) {
   const [awardWho, setAwardWho] = useState("");
   const [awardSeason, setAwardSeason] = useState("");
   const [showAvail, setShowAvail] = useState(false);
+  const [showAllFixtures, setShowAllFixtures] = useState(false);
   const [avDate, setAvDate] = useState(today());
   const [avKind, setAvKind] = useState("friendly");
   const [avPage, setAvPage] = useState("");
@@ -1444,7 +1445,7 @@ function HomeTab({ ctx, go }) {
           <Empty>No games scheduled for you yet.</Empty>
         ) : (
           <div className="space-y-2">
-            {myFixtures.map((f) => {
+            {(showAllFixtures ? myFixtures : myFixtures.slice(0, 3)).map((f) => {
               const oppSide = fixtureSide(pages, memberNames, f, "playerA").member === user.name ? "playerB" : "playerA";
               return (
                 <Card key={f.id} className="flex items-center justify-between gap-3 p-3">
@@ -1456,6 +1457,14 @@ function HomeTab({ ctx, go }) {
                 </Card>
               );
             })}
+            {myFixtures.length > 3 && (
+              <button onClick={() => setShowAllFixtures((v) => !v)}
+                className="f-disp flex w-full items-center justify-center gap-1 rounded-sm border border-dashed border-amber-700/40 py-1.5 text-[11px] uppercase tracking-wide text-amber-800 hover:bg-amber-100/50">
+                {showAllFixtures
+                  ? <><ChevronUp size={13} /> Show fewer</>
+                  : <><ChevronDown size={13} /> Show {myFixtures.length - 3} more</>}
+              </button>
+            )}
           </div>
         )}
 

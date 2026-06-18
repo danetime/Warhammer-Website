@@ -1320,6 +1320,7 @@ function HomeTab({ ctx, go }) {
   const [showAvail, setShowAvail] = useState(false);
   const [showAllFixtures, setShowAllFixtures] = useState(false);
   const [showAllCalls, setShowAllCalls] = useState(false);
+  const [showAllRoster, setShowAllRoster] = useState(false);
   const [avDate, setAvDate] = useState(today());
   const [avKind, setAvKind] = useState("friendly");
   const [avPage, setAvPage] = useState("");
@@ -1561,8 +1562,13 @@ function HomeTab({ ctx, go }) {
         )}
       </div>
 
-      <div>
-        <H icon={Trophy} right={<B small kind="ghost" onClick={() => go("faq")}>What's Might? <HelpCircle size={12} /></B>}>The Ladder</H>
+      <div className="lg:sticky lg:top-4 lg:self-start">
+        <H icon={Trophy} right={
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <B small kind="ghost" onClick={() => go("battles")}>Full standings <ChevronRight size={12} /></B>
+            <B small kind="ghost" onClick={() => go("faq")}>What's Might? <HelpCircle size={12} /></B>
+          </div>
+        }>The Ladder</H>
         {ladder.length === 0 ? (
           <Empty>No ranked battles yet. File a battle report and claim the top spot before Dan does.</Empty>
         ) : (
@@ -1604,10 +1610,10 @@ function HomeTab({ ctx, go }) {
         </Card>
 
         <H icon={Shield} right={user.isAdmin && <B small kind="gold" onClick={() => setShowAward(true)}><Crown size={12} /> Award crown</B>}>
-          Muster Roll
+          Muster Roll · {directory.length}
         </H>
         <Card className="divide-y divide-stone-200">
-          {directory.map((u) => {
+          {(showAllRoster ? directory : directory.slice(0, 8)).map((u) => {
             const rk = headlineRankFor(u, armyGames[u.name]);
             const isChamp = currentChamp && currentChamp.member === u.name;
             return (
@@ -1627,6 +1633,14 @@ function HomeTab({ ctx, go }) {
               </div>
             );
           })}
+          {directory.length > 8 && (
+            <button onClick={() => setShowAllRoster((v) => !v)}
+              className="f-disp flex w-full items-center justify-center gap-1 px-3 py-2 text-[11px] uppercase tracking-wide text-amber-800 hover:bg-amber-100/50">
+              {showAllRoster
+                ? <><ChevronUp size={13} /> Show fewer</>
+                : <><ChevronDown size={13} /> Show {directory.length - 8} more</>}
+            </button>
+          )}
         </Card>
 
         {(currentChamp || pastChamps.length > 0) && (

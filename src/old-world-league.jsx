@@ -539,8 +539,9 @@ const ImagePopup = ({ src, alt, onClose }) => (
 );
 
 /* ---------- wax seal stamped on a committed army list ----------
-   Pure SVG (no image): a domed wax disc with a double gold rim and the word
-   "COMMITTED" curved around the rim via <textPath>, the shield struck in the
+   Pure SVG (no image): a domed wax disc with an organic, turbulence-displaced
+   blob edge, a vignette for depth, a double gold rim struck crisp on top, and
+   "COMMITTED" curved around the rim via <textPath> with the shield in the
    middle. Tilted a touch so it reads as hand-stamped. */
 const CommittedSeal = ({ size = 64 }) => {
   const uid = useId().replace(/[^a-z0-9]/gi, "");
@@ -562,25 +563,40 @@ const CommittedSeal = ({ size = 64 }) => {
             <stop offset="0%" stopColor="#ffffff" stopOpacity="0.30" />
             <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
           </radialGradient>
-          <path id={`top${uid}`} d="M 6,50 A 44,44 0 0,1 94,50" fill="none" />
-          <path id={`bot${uid}`} d="M 6,50 A 44,44 0 0,0 94,50" fill="none" />
+          {/* vignette: darken the rim so the wax looks pressed/domed */}
+          <radialGradient id={`vig${uid}`} cx="50%" cy="50%" r="50%">
+            <stop offset="60%" stopColor="#2a0606" stopOpacity="0" />
+            <stop offset="100%" stopColor="#2a0606" stopOpacity="0.55" />
+          </radialGradient>
+          {/* organic wax-blob edge: wobble the disc outline with Perlin noise */}
+          <filter id={`rough${uid}`} x="-20%" y="-20%" width="140%" height="140%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.022" numOctaves="2" seed="7" result="n" />
+            <feDisplacementMap in="SourceGraphic" in2="n" scale="4" xChannelSelector="R" yChannelSelector="G" />
+          </filter>
+          <path id={`top${uid}`} d="M 10,50 A 40,40 0 0,1 90,50" fill="none" />
+          <path id={`bot${uid}`} d="M 10,50 A 40,40 0 0,0 90,50" fill="none" />
         </defs>
 
-        <circle cx="50" cy="50" r="48" fill={`url(#wax${uid})`} stroke="#330909" strokeWidth="1.2" />
-        <circle cx="50" cy="50" r="45.5" fill="none" stroke="#f1cd72" strokeWidth="1.6" opacity="0.95" />
-        <circle cx="50" cy="50" r="33.5" fill="none" stroke="#f1cd72" strokeWidth="1" opacity="0.8" />
-        <circle cx="50" cy="50" r="48" fill={`url(#sheen${uid})`} />
+        {/* irregular wax blob (edge displaced by turbulence) */}
+        <g filter={`url(#rough${uid})`}>
+          <circle cx="50" cy="50" r="47" fill={`url(#wax${uid})`} stroke="#330909" strokeWidth="1.2" />
+          <circle cx="50" cy="50" r="47" fill={`url(#vig${uid})`} />
+        </g>
+        {/* crisp struck detail on top of the wax */}
+        <circle cx="50" cy="50" r="44.5" fill="none" stroke="#f1cd72" strokeWidth="1.6" opacity="0.95" />
+        <circle cx="50" cy="50" r="31.5" fill="none" stroke="#f1cd72" strokeWidth="1" opacity="0.8" />
+        <circle cx="50" cy="50" r="44.5" fill={`url(#sheen${uid})`} />
 
-        <text className="f-disp" fill="#fce9bd" fontSize="13" fontWeight="700" letterSpacing="1.4" textAnchor="middle">
+        <text className="f-disp" fill="#fce9bd" fontSize="11" fontWeight="700" letterSpacing="1.2" textAnchor="middle">
           <textPath href={`#bot${uid}`} startOffset="50%">COMMITTED</textPath>
         </text>
-        <text className="f-disp" fill="#f1cd72" fontSize="11" letterSpacing="3" textAnchor="middle">
+        <text className="f-disp" fill="#f1cd72" fontSize="9.5" letterSpacing="3" textAnchor="middle">
           <textPath href={`#top${uid}`} startOffset="50%">✦ ✦ ✦</textPath>
         </text>
       </svg>
 
       <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-        <Shield size={Math.round(size * 0.32)} className="text-amber-200"
+        <Shield size={Math.round(size * 0.3)} className="text-amber-200"
           style={{ filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.4))" }} />
       </div>
     </div>

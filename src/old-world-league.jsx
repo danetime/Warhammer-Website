@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Component } from "react";
+import { useState, useEffect, useRef, useId, Component } from "react";
 import { Routes, Route, useNavigate, useParams, Link } from "react-router-dom";
 import {
   Swords, Trophy, Scroll, Camera, HelpCircle, Beer, Crown, Plus, Trash2,
@@ -538,16 +538,54 @@ const ImagePopup = ({ src, alt, onClose }) => (
   </div>
 );
 
-/* ---------- wax seal stamped on a committed army list ---------- */
-const CommittedSeal = ({ size = 60 }) => (
-  <div title="This army list is committed and sealed" style={{ width: size, height: size }}
-    className="relative inline-flex shrink-0 -rotate-6 items-center justify-center rounded-full border-2 border-double border-amber-200/80 bg-gradient-to-br from-red-700 to-red-950 text-amber-100 shadow-md">
-    <div className="flex flex-col items-center leading-none">
-      <Shield size={Math.round(size * 0.3)} className="text-amber-200" />
-      <span className="f-disp mt-0.5 text-[8px] font-bold uppercase tracking-wider">Committed</span>
+/* ---------- wax seal stamped on a committed army list ----------
+   Pure SVG (no image): a domed wax disc with a double gold rim and the word
+   "COMMITTED" curved around the rim via <textPath>, the shield struck in the
+   middle. Tilted a touch so it reads as hand-stamped. */
+const CommittedSeal = ({ size = 64 }) => {
+  const uid = useId().replace(/[^a-z0-9]/gi, "");
+  return (
+    <div title="This army list is committed and sealed"
+      className="relative inline-flex shrink-0 -rotate-6 items-center justify-center drop-shadow-md"
+      style={{ width: size, height: size }}>
+      <svg viewBox="0 0 100 100" width={size} height={size} className="block">
+        <defs>
+          {/* domed wax body: highlight toward the upper-left, deepening to maroon at the rim */}
+          <radialGradient id={`wax${uid}`} cx="37%" cy="32%" r="75%">
+            <stop offset="0%" stopColor="#c11f1f" />
+            <stop offset="45%" stopColor="#991b1b" />
+            <stop offset="80%" stopColor="#7f1d1d" />
+            <stop offset="100%" stopColor="#490e0e" />
+          </radialGradient>
+          {/* soft sheen across the top-left for a waxy gloss */}
+          <radialGradient id={`sheen${uid}`} cx="34%" cy="27%" r="45%">
+            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.30" />
+            <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+          </radialGradient>
+          <path id={`top${uid}`} d="M 6,50 A 44,44 0 0,1 94,50" fill="none" />
+          <path id={`bot${uid}`} d="M 6,50 A 44,44 0 0,0 94,50" fill="none" />
+        </defs>
+
+        <circle cx="50" cy="50" r="48" fill={`url(#wax${uid})`} stroke="#330909" strokeWidth="1.2" />
+        <circle cx="50" cy="50" r="45.5" fill="none" stroke="#f1cd72" strokeWidth="1.6" opacity="0.95" />
+        <circle cx="50" cy="50" r="33.5" fill="none" stroke="#f1cd72" strokeWidth="1" opacity="0.8" />
+        <circle cx="50" cy="50" r="48" fill={`url(#sheen${uid})`} />
+
+        <text className="f-disp" fill="#fce9bd" fontSize="13" fontWeight="700" letterSpacing="1.4" textAnchor="middle">
+          <textPath href={`#bot${uid}`} startOffset="50%">COMMITTED</textPath>
+        </text>
+        <text className="f-disp" fill="#f1cd72" fontSize="11" letterSpacing="3" textAnchor="middle">
+          <textPath href={`#top${uid}`} startOffset="50%">✦ ✦ ✦</textPath>
+        </text>
+      </svg>
+
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <Shield size={Math.round(size * 0.32)} className="text-amber-200"
+          style={{ filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.4))" }} />
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 /* ---------- honours / side-titles (admin-awarded) ---------- */
 const HONOUR_META = {
@@ -2236,7 +2274,7 @@ function CommittedLists({ ctx, pageId }) {
                   </p>
                   {!c.committed && <p className="f-disp text-[10px] uppercase tracking-wide text-stone-400">Draft &mdash; not yet sealed</p>}
                 </div>
-                {c.committed && <CommittedSeal size={54} />}
+                {c.committed && <CommittedSeal size={62} />}
               </div>
 
               {editId === c.id ? (

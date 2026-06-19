@@ -3591,13 +3591,16 @@ function PlaceholderManager({ ctx }) {
 }
 
 function AdminTab({ ctx }) {
-  const { user, users, fixtures, reports, pages, proposals, champions, laurels, honours, availability, quotes, faq, rules, photosIdx, emblems, siteName, siteTagline, db, reload, refreshUsers } = ctx;
+  const { user, users, fixtures, reports, pages, proposals, champions, laurels, honours, availability, quotes, faq, rules, photosIdx, emblems, siteName, siteTagline, db, reload, reloadAll, refreshUsers, refreshUser } = ctx;
   const navigate = useNavigate();
   const [showEmblems, setShowEmblems] = useState(false);
   const [busy, setBusy] = useState("");
   const [nameDraft, setNameDraft] = useState(siteName);
   const [taglineDraft, setTaglineDraft] = useState(siteTagline);
   const [nameSaved, setNameSaved] = useState(false);
+  const [renaming, setRenaming] = useState(null);   // member being renamed (or null)
+  const [renameTo, setRenameTo] = useState("");
+  const [renameErr, setRenameErr] = useState("");
 
   if (!user.isAdmin) return <Empty>The Grand Marshal's chambers are barred to you.</Empty>;
 
@@ -3618,6 +3621,21 @@ function AdminTab({ ctx }) {
     if (res && res.error) alert("Could not remove member: " + (res.error.message || "unknown error"));
     await refreshUsers();
     setBusy("");
+  };
+
+  const startRename = (u) => { setRenameErr(""); setRenameTo(u.name); setRenaming(u); };
+  const doRename = async () => {
+    if (!renaming) return;
+    const newName = renameTo.trim();
+    if (!newName || newName === renaming.name) return;
+    setBusy(renaming.id); setRenameErr("");
+    const { error } = await db.profiles.rename(renaming.name, newName);
+    if (error) { setRenameErr(error.message || "Could not rename that member."); setBusy(""); return; }
+    // A rename rewrites many collections, so re-pull everything; refreshUser in
+    // case the Grand Marshal renamed themselves.
+    await reloadAll();
+    await refreshUser();
+    setBusy(""); setRenaming(null);
   };
 
   const exportData = () => {
@@ -3684,6 +3702,7 @@ function AdminTab({ ctx }) {
                 className="f-body rounded-sm border border-stone-300 bg-white px-1.5 py-1 text-xs">
                 {ARMIES.map((a) => <option key={a}>{a}</option>)}
               </select>
+              <B small kind="ghost" onClick={() => startRename(u)} title="Change this member's username"><Pencil size={12} /> Rename</B>
               {u.name !== user.name && (
                 <>
                   <B small kind="ghost" onClick={() => toggleAdmin(id, !u.isAdmin)}>{u.isAdmin ? "Demote" : "Promote"}</B>
@@ -3708,6 +3727,22 @@ function AdminTab({ ctx }) {
       <p className="mt-2 text-[11px] italic text-stone-500">The backup is a JSON snapshot (no photo images) you can keep off-site.</p>
 
       {showEmblems && <EmblemManager ctx={ctx} onClose={() => setShowEmblems(false)} />}
+
+      {renaming && (
+        <Modal title={"Rename " + renaming.name} onClose={() => { setRenaming(null); setRenameErr(""); }}>
+          <div className="space-y-3">
+            <p className="text-sm text-stone-600">
+              Every battle, standing, vote and honour recorded under <span className="font-bold">{renaming.name}</span> will be carried onto the new name. Their login (email &amp; password) is unaffected.
+            </p>
+            <Inp value={renameTo} onChange={(e) => setRenameTo(e.target.value)} placeholder={renaming.name} maxLength={40}
+              onKeyDown={(e) => e.key === "Enter" && doRename()} />
+            {renameErr && <p className="f-body text-sm font-bold text-red-800">{renameErr}</p>}
+            <B kind="gold" onClick={doRename} disabled={busy === renaming.id || !renameTo.trim() || renameTo.trim() === renaming.name}>
+              <Pencil size={14} /> {busy === renaming.id ? "Renaming…" : "Rename & carry history over"}
+            </B>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

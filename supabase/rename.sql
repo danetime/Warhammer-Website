@@ -76,8 +76,20 @@ begin
     raise exception 'You may only rename yourself.';
   end if;
 
-  if exists (select 1 from public.profiles where display_name = nn and display_name <> old_name) then
+  -- Case-insensitive collision check: the app matches members by name without
+  -- regard to case, so "Dane" must not be allowed alongside an existing "dane".
+  -- (A pure case-change of your own name is still allowed: it excludes old_name.)
+  if exists (select 1 from public.profiles where lower(display_name) = lower(nn) and display_name <> old_name) then
     raise exception 'That name is already on the muster roll.';
+  end if;
+
+  -- Guard against colliding with a placeholder member, since the UI resolves
+  -- accounts and placeholders from the same name-space. Wrapped in a regclass
+  -- check so this still works if the placeholders migration hasn't been run.
+  if to_regclass('public.placeholder_members') is not null and exists (
+    select 1 from public.placeholder_members where lower(display_name) = lower(nn)
+  ) then
+    raise exception 'That name is already taken by a placeholder on the muster roll.';
   end if;
 
   if nn = old_name then return; end if;

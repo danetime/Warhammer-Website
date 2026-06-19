@@ -266,6 +266,10 @@ export const db = {
   },
   profiles: {
     update: (id, patch) => supabase.from("profiles").update(patch).eq("id", id),
+    // Change a member's username, carrying ALL their history with it (battle
+    // reports, votes, honours, availability…). Server-side RPC, gated to the
+    // member themselves or an admin; see supabase/rename.sql.
+    rename: (oldName, newName) => supabase.rpc("rename_member", { old_name: oldName, new_name: newName }),
     setAdmin: (id, isAdmin) => supabase.from("profiles").update({ is_admin: isAdmin }).eq("id", id),
     remove: (id) => supabase.rpc("admin_delete_member", { target: id }),
     setImage: async (id, field, dataURL) => {

@@ -36,11 +36,19 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const today = () => new Date().toISOString().slice(0, 10);
 
 /* App version — shown in the footer. Bump on each release. */
-const VERSION = "1.1.0";
+const VERSION = "1.1.1";
 
 /* Changelog — newest first. Add an entry whenever you bump VERSION above.
    Shown in a pop-up when you click the version number in the footer. */
 const CHANGELOG = [
+  {
+    version: "1.1.1",
+    date: "2026-06-19",
+    notes: [
+      "Change your name — you can now rename yourself from your profile's Settings (the cog). Every battle, standing, vote and honour you've earned follows you to the new name, and your sign-in (email and watchword) stays exactly the same.",
+      "The Grand Marshal can rename any member, either from their profile or straight from the Members roll in the Chambers.",
+    ],
+  },
   {
     version: "1.1.0",
     date: "2026-06-17",
@@ -987,7 +995,7 @@ function Hub({ ctx }) {
    PROFILE — a member's page: rank, ELO, per-army record, honours
    ============================================================ */
 function ProfilePage({ ctx }) {
-  const { user, users, placeholders, reports, champions, honours, emblems, logout, siteName, siteTagline, db, reload, refreshUsers, refreshUser } = ctx;
+  const { user, users, placeholders, reports, champions, honours, emblems, logout, siteName, siteTagline, db, reload, reloadAll, refreshUsers, refreshUser } = ctx;
   const navigate = useNavigate();
   const { name: rawName } = useParams();
   const name = rawName || "";
@@ -1041,9 +1049,12 @@ function ProfilePage({ ctx }) {
   const [showAward, setShowAward] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [zoom, setZoom] = useState(null);
+  const [editName, setEditName] = useState("");
   const [editArmy, setEditArmy] = useState("");
   const [editSurname, setEditSurname] = useState("");
   const [emailPrefs, setEmailPrefs] = useState({});
+  const [editErr, setEditErr] = useState("");
+  const [saving, setSaving] = useState(false);
   const [cat, setCat] = useState("league");
   const [hTitle, setHTitle] = useState("");
   const [hSeason, setHSeason] = useState("");
@@ -1076,16 +1087,34 @@ function ProfilePage({ ctx }) {
     await refreshUsers();
   };
   const saveProfile = async () => {
-    if (!member || isPlaceholder) return;
-    if (editArmy && editArmy !== member.faction) await db.profiles.update(member.id, { faction: editArmy });
-    if (user.isAdmin) {
-      const newSurname = editSurname.trim();
-      if (newSurname !== (member.surname || "")) await db.profiles.update(member.id, { surname: newSurname || null });
+    if (!member || isPlaceholder || saving) return;
+    setEditErr(""); setSaving(true);
+    try {
+      // A username change must go through the rename RPC so every battle, vote
+      // and honour recorded under the old name is carried across server-side.
+      const newName = editName.trim();
+      const renamed = !!newName && newName !== member.name;
+      if (renamed) {
+        const { error } = await db.profiles.rename(member.name, newName);
+        if (error) { setEditErr(error.message || "Could not change that username."); return; }
+      }
+      if (editArmy && editArmy !== member.faction) await db.profiles.update(member.id, { faction: editArmy });
+      if (user.isAdmin) {
+        const newSurname = editSurname.trim();
+        if (newSurname !== (member.surname || "")) await db.profiles.update(member.id, { surname: newSurname || null });
+      }
+      if (member.name === user.name) await db.profiles.update(member.id, { email_prefs: emailPrefs });
+      // A rename rewrites many collections, so re-pull everything (not just users).
+      await reloadAll();
+      await refreshUser();
+      setShowEdit(false);
+      // Profile URLs are keyed by name — follow the member to their new one.
+      if (renamed) navigate("/member/" + encodeURIComponent(newName), { replace: true });
+    } catch (e) {
+      setEditErr("Something went wrong saving the profile.");
+    } finally {
+      setSaving(false);
     }
-    if (member.name === user.name) await db.profiles.update(member.id, { email_prefs: emailPrefs });
-    await refreshUsers();
-    await refreshUser();
-    setShowEdit(false);
   };
 
   return (
@@ -1148,7 +1177,7 @@ function ProfilePage({ ctx }) {
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {canEdit && member && (
-                    <button onClick={() => { setEditArmy(member.faction); setEditSurname(member.surname || ""); setEmailPrefs(member.emailPrefs || {}); setShowEdit(true); }}
+                    <button onClick={() => { setEditName(member.name); setEditArmy(member.faction); setEditSurname(member.surname || ""); setEmailPrefs(member.emailPrefs || {}); setEditErr(""); setShowEdit(true); }}
                       className="rounded-sm border border-stone-300 bg-white/70 p-1.5 text-stone-500 hover:text-red-900" title="Edit profile & settings">
                       <Settings size={18} />
                     </button>
@@ -1293,6 +1322,15 @@ function ProfilePage({ ctx }) {
         <Modal title="Settings" onClose={() => setShowEdit(false)}>
           <div className="space-y-3">
             <div>
+              <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Username</p>
+              <Inp value={editName} onChange={(e) => setEditName(e.target.value)} placeholder={member.name} maxLength={40} />
+              <p className="mt-1 text-[11px] italic text-stone-500">
+                {editName.trim() && editName.trim() !== member.name
+                  ? <>Every battle, standing, vote and honour under <span className="font-bold not-italic">{member.name}</span> moves to <span className="font-bold not-italic text-amber-800">{editName.trim()}</span>.</>
+                  : "Your name across the league. Changing it carries all your history with it."}
+              </p>
+            </div>
+            <div>
               <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Army you're currently playing</p>
               <Sel value={editArmy} onChange={(e) => setEditArmy(e.target.value)}>
                 {ARMIES.map((a) => <option key={a}>{a}</option>)}
@@ -1348,7 +1386,8 @@ function ProfilePage({ ctx }) {
                 <p className="mt-1 text-[11px] italic text-stone-500">You're always emailed when someone accepts your own game.</p>
               </div>
             )}
-            <B onClick={saveProfile}><Save size={14} /> Save</B>
+            {editErr && <p className="f-body text-sm font-bold text-red-800">{editErr}</p>}
+            <B onClick={saveProfile} disabled={saving}><Save size={14} /> {saving ? "Saving…" : "Save"}</B>
           </div>
         </Modal>
       )}
@@ -3560,13 +3599,16 @@ function PlaceholderManager({ ctx }) {
 }
 
 function AdminTab({ ctx }) {
-  const { user, users, fixtures, reports, pages, proposals, champions, laurels, honours, availability, quotes, faq, rules, photosIdx, emblems, siteName, siteTagline, db, reload, refreshUsers } = ctx;
+  const { user, users, fixtures, reports, pages, proposals, champions, laurels, honours, availability, quotes, faq, rules, photosIdx, emblems, siteName, siteTagline, db, reload, reloadAll, refreshUsers, refreshUser } = ctx;
   const navigate = useNavigate();
   const [showEmblems, setShowEmblems] = useState(false);
   const [busy, setBusy] = useState("");
   const [nameDraft, setNameDraft] = useState(siteName);
   const [taglineDraft, setTaglineDraft] = useState(siteTagline);
   const [nameSaved, setNameSaved] = useState(false);
+  const [renaming, setRenaming] = useState(null);   // member being renamed (or null)
+  const [renameTo, setRenameTo] = useState("");
+  const [renameErr, setRenameErr] = useState("");
 
   if (!user.isAdmin) return <Empty>The Grand Marshal's chambers are barred to you.</Empty>;
 
@@ -3587,6 +3629,21 @@ function AdminTab({ ctx }) {
     if (res && res.error) alert("Could not remove member: " + (res.error.message || "unknown error"));
     await refreshUsers();
     setBusy("");
+  };
+
+  const startRename = (u) => { setRenameErr(""); setRenameTo(u.name); setRenaming(u); };
+  const doRename = async () => {
+    if (!renaming) return;
+    const newName = renameTo.trim();
+    if (!newName || newName === renaming.name) return;
+    setBusy(renaming.id); setRenameErr("");
+    const { error } = await db.profiles.rename(renaming.name, newName);
+    if (error) { setRenameErr(error.message || "Could not rename that member."); setBusy(""); return; }
+    // A rename rewrites many collections, so re-pull everything; refreshUser in
+    // case the Grand Marshal renamed themselves.
+    await reloadAll();
+    await refreshUser();
+    setBusy(""); setRenaming(null);
   };
 
   const exportData = () => {
@@ -3653,6 +3710,7 @@ function AdminTab({ ctx }) {
                 className="f-body rounded-sm border border-stone-300 bg-white px-1.5 py-1 text-xs">
                 {ARMIES.map((a) => <option key={a}>{a}</option>)}
               </select>
+              <B small kind="ghost" onClick={() => startRename(u)} title="Change this member's username"><Pencil size={12} /> Rename</B>
               {u.name !== user.name && (
                 <>
                   <B small kind="ghost" onClick={() => toggleAdmin(id, !u.isAdmin)}>{u.isAdmin ? "Demote" : "Promote"}</B>
@@ -3677,6 +3735,22 @@ function AdminTab({ ctx }) {
       <p className="mt-2 text-[11px] italic text-stone-500">The backup is a JSON snapshot (no photo images) you can keep off-site.</p>
 
       {showEmblems && <EmblemManager ctx={ctx} onClose={() => setShowEmblems(false)} />}
+
+      {renaming && (
+        <Modal title={"Rename " + renaming.name} onClose={() => { setRenaming(null); setRenameErr(""); }}>
+          <div className="space-y-3">
+            <p className="text-sm text-stone-600">
+              Every battle, standing, vote and honour recorded under <span className="font-bold">{renaming.name}</span> will be carried onto the new name. Their login (email &amp; password) is unaffected.
+            </p>
+            <Inp value={renameTo} onChange={(e) => setRenameTo(e.target.value)} placeholder={renaming.name} maxLength={40}
+              onKeyDown={(e) => e.key === "Enter" && doRename()} />
+            {renameErr && <p className="f-body text-sm font-bold text-red-800">{renameErr}</p>}
+            <B kind="gold" onClick={doRename} disabled={busy === renaming.id || !renameTo.trim() || renameTo.trim() === renaming.name}>
+              <Pencil size={14} /> {busy === renaming.id ? "Renaming…" : "Rename & carry history over"}
+            </B>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

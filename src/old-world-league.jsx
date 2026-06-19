@@ -36,11 +36,19 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const today = () => new Date().toISOString().slice(0, 10);
 
 /* App version — shown in the footer. Bump on each release. */
-const VERSION = "1.1.0";
+const VERSION = "1.1.1";
 
 /* Changelog — newest first. Add an entry whenever you bump VERSION above.
    Shown in a pop-up when you click the version number in the footer. */
 const CHANGELOG = [
+  {
+    version: "1.1.1",
+    date: "2026-06-19",
+    notes: [
+      "Change your name — you can now rename yourself from your profile's Settings (the cog). Every battle, standing, vote and honour you've earned follows you to the new name, and your sign-in (email and watchword) stays exactly the same.",
+      "The Grand Marshal can rename any member, either from their profile or straight from the Members roll in the Chambers.",
+    ],
+  },
   {
     version: "1.1.0",
     date: "2026-06-17",

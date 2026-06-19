@@ -26,11 +26,12 @@ lost between sessions. Newest ideas at the top of each section.
 
 ## Shipped
 
-- **Username changes** — members can rename themselves (and admins can rename
-  anyone) from the profile Settings dialog. The `rename_member()` RPC carries all
-  their history across server-side; the collision check is case-insensitive and
-  also guards against placeholder names. (Known gap: `pages.rows` league/cup
-  tables are still not rewritten — see the tech-debt note above.)
+- **v1.1.1** — username changes: members can rename themselves, and admins can
+  rename anyone (from the profile Settings dialog or the admin Members panel).
+  The `rename_member()` RPC carries all history across server-side; the collision
+  check is case-insensitive and also guards against placeholder names. (Known
+  gap: `pages.rows` league/cup tables are still not rewritten — see the tech-debt
+  note above.)
 - **v1.1** — placeholder members (+ link-to-account merge), fixture editing,
   per-competition round grouping, Resend email transport, RLS lockdown audit.
 - **v1.0** — committed army lists, email notifications (Gmail SMTP + weekly

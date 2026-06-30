@@ -22,6 +22,7 @@ const fromReport = (r) => ({
   id: r.id, playerA: r.player_a, playerB: r.player_b, armyA: r.army_a, armyB: r.army_b,
   date: r.date, points: r.points, winner: r.winner, score: r.score, moment: r.moment,
   shame: r.shame || [], filedBy: r.filed_by, margin: r.margin, ranked: r.ranked !== false,
+  doubles: !!r.doubles, playerA2: r.player_a2 || "", playerB2: r.player_b2 || "",
   created: ts(r.created_at),
 });
 const fromQuote = (r) => ({
@@ -128,6 +129,8 @@ export const db = {
       margin: r.winner === "draw" ? null : (r.margin || "victory"),
       ranked: r.ranked !== false, score: r.score,
       moment: r.moment, shame: r.shame || [], filed_by: r.filedBy,
+      doubles: !!r.doubles, player_a2: (r.doubles && r.playerA2) ? r.playerA2 : null,
+      player_b2: (r.doubles && r.playerB2) ? r.playerB2 : null,
     }),
     remove: (id) => supabase.from("battle_reports").delete().eq("id", id),
   },

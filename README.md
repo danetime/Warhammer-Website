@@ -129,6 +129,7 @@ supabase/
   email-prefs.sql        per-member email opt-out (profiles.email_prefs)
   committed-lists.sql    committed army lists per league/cup (sealed once locked)
   placeholders.sql       placeholder members + merge_placeholder() (link to an account)
+  doubles.sql            doubles (2v2) battles — partner per side on battle reports
 BACKLOG.md               Feature list & backlog (deferred ideas, tech debt)
 docs/
   build-guide.py         Generates the field-manual PDF (needs `pip install reportlab`)

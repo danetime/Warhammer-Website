@@ -26,6 +26,11 @@ lost between sessions. Newest ideas at the top of each section.
 
 ## Shipped
 
+- **v1.2.0** — fixtures can be left date-TBC; a fixture can be turned straight
+  into a battle report ("this game has been played"), which strikes the fixture
+  once filed; doubles (2v2) battles via a tick on the report form — partner per
+  side stored in `player_a2` / `player_b2`, with league points and Might awarded
+  to all four players exactly as a singles game (`supabase/doubles.sql`).
 - **v1.1.1** — username changes: members can rename themselves, and admins can
   rename anyone (from the profile Settings dialog or the admin Members panel).
   The `rename_member()` RPC carries all history across server-side; the collision

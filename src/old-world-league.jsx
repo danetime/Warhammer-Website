@@ -36,11 +36,20 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const today = () => new Date().toISOString().slice(0, 10);
 
 /* App version — shown in the footer. Bump on each release. */
-const VERSION = "1.1.1";
+const VERSION = "1.2.0";
 
 /* Changelog — newest first. Add an entry whenever you bump VERSION above.
    Shown in a pop-up when you click the version number in the footer. */
 const CHANGELOG = [
+  {
+    version: "1.2.0",
+    date: "2026-06-30",
+    notes: [
+      "Fixtures with no date set — tick “Date to be confirmed (TBC)” when you schedule a battle and it shows as TBC until you pin a day down.",
+      "Turn a fixture into a result — click the crossed-swords on any scheduled battle (“this game has been played”) and the battle-report form opens pre-filled with the players, date and points. File it and the fixture is struck off automatically.",
+      "Doubles (2v2) battles — tick “Doubles” on a battle report to add a partner to each side. The points, win/loss records and Might (ELO) are awarded to all four players exactly as a normal game.",
+    ],
+  },
   {
     version: "1.1.1",
     date: "2026-06-19",
@@ -214,10 +223,14 @@ const RANK_TITLES = {
 /* games played per member name, counted from battle reports */
 function gamesPlayedMap(reports) {
   const m = {};
+  const bump = (n) => { if (n) m[n] = (m[n] || 0) + 1; };
   for (const r of reports) {
-    const a = (r.playerA || "").trim(), b = (r.playerB || "").trim();
-    if (a) m[a] = (m[a] || 0) + 1;
-    if (b && b !== a) m[b] = (m[b] || 0) + 1;
+    const names = [];
+    for (const n of [r.playerA, r.doubles ? r.playerA2 : null, r.playerB, r.doubles ? r.playerB2 : null]) {
+      const t = (n || "").trim();
+      if (t && !names.includes(t)) names.push(t);
+    }
+    names.forEach(bump);
   }
   return m;
 }
@@ -264,6 +277,13 @@ function gamesByArmyMap(reports, users) {
     const a = (r.playerA || "").trim(), b = (r.playerB || "").trim();
     bump(a, r.armyA);
     if (b && b !== a) bump(b, r.armyB);
+    // Doubles partners have no army of their own, so they fall back to their
+    // profile faction inside bump(). Their game still counts towards rank.
+    if (r.doubles) {
+      const a2 = (r.playerA2 || "").trim(), b2 = (r.playerB2 || "").trim();
+      if (a2 && a2 !== a) bump(a2, null);
+      if (b2 && b2 !== b && b2 !== a2) bump(b2, null);
+    }
   }
   return m;
 }
@@ -347,6 +367,33 @@ function FxSide({ f, side, pages, memberNames, navigate }) {
 const MARGIN_MULT = { marginal: 0.75, victory: 1, defiant: 1.25 };
 const MARGIN_LABEL = { marginal: "Marginal victory", victory: "Victory", defiant: "Defiant victory" };
 
+/* The players on each side of a report. A doubles (2v2) game has a partner in
+   playerA2 / playerB2; a normal game leaves them empty. Returns trimmed,
+   de-duplicated names so the same person can't be scored twice in one game. */
+function reportTeams(r) {
+  const clean = (...names) => {
+    const out = [];
+    for (const n of names) {
+      const t = (n || "").trim();
+      if (t && !out.includes(t)) out.push(t);
+    }
+    return out;
+  };
+  return {
+    A: clean(r.playerA, r.doubles ? r.playerA2 : null),
+    B: clean(r.playerB, r.doubles ? r.playerB2 : null),
+  };
+}
+
+/* Which side a member played on in a report ("A" / "B"), or null. Considers
+   doubles partners, so a partner is credited everywhere a primary player is. */
+function reportSide(r, who) {
+  const { A, B } = reportTeams(r);
+  if (A.includes(who)) return "A";
+  if (B.includes(who)) return "B";
+  return null;
+}
+
 function computeStandings(reports) {
   const elo = {}, rec = {};
   const ensure = (p) => {
@@ -357,19 +404,39 @@ function computeStandings(reports) {
     (a, b) => (a.date || "").localeCompare(b.date || "") || (a.created || 0) - (b.created || 0)
   );
   for (const r of sorted) {
-    const A = (r.playerA || "").trim(), B = (r.playerB || "").trim();
-    if (!A || !B || A === B) continue;
     if (r.ranked === false) continue;
-    ensure(A); ensure(B);
-    const ea = 1 / (1 + Math.pow(10, (elo[B] - elo[A]) / 400));
+    const { A: teamA, B: teamB } = reportTeams(r);
+    // Skip if a side is empty or the two sides share a player (a misfiled game).
+    if (!teamA.length || !teamB.length) continue;
+    if (teamA.some((n) => teamB.includes(n))) continue;
+    [...teamA, ...teamB].forEach(ensure);
+    // Team rating is the average Might of its players, so a 2v2 swings each
+    // member's Might exactly as a 1v1 would (for a singles game this reduces to
+    // the player's own rating, leaving the maths identical to before).
+    const avg = (t) => t.reduce((s, p) => s + elo[p], 0) / t.length;
+    const ra = avg(teamA), rb = avg(teamB);
     const sa = r.winner === "A" ? 1 : r.winner === "B" ? 0 : 0.5;
     const K = 32 * (r.winner === "draw" ? 1 : (MARGIN_MULT[r.margin] || 1));
-    elo[A] = Math.round(elo[A] + K * (sa - ea));
-    elo[B] = Math.round(elo[B] + K * ((1 - sa) - (1 - ea)));
-    rec[A].p++; rec[B].p++;
-    if (r.winner === "A") { rec[A].w++; rec[B].l++; rec[A].pts += 3; }
-    else if (r.winner === "B") { rec[B].w++; rec[A].l++; rec[B].pts += 3; }
-    else { rec[A].d++; rec[B].d++; rec[A].pts++; rec[B].pts++; }
+    for (const p of teamA) {
+      const ea = 1 / (1 + Math.pow(10, (rb - elo[p]) / 400));
+      elo[p] = Math.round(elo[p] + K * (sa - ea));
+    }
+    for (const p of teamB) {
+      const eb = 1 / (1 + Math.pow(10, (ra - elo[p]) / 400));
+      elo[p] = Math.round(elo[p] + K * ((1 - sa) - eb));
+    }
+    for (const p of teamA) {
+      rec[p].p++;
+      if (r.winner === "A") { rec[p].w++; rec[p].pts += 3; }
+      else if (r.winner === "B") { rec[p].l++; }
+      else { rec[p].d++; rec[p].pts++; }
+    }
+    for (const p of teamB) {
+      rec[p].p++;
+      if (r.winner === "B") { rec[p].w++; rec[p].pts += 3; }
+      else if (r.winner === "A") { rec[p].l++; }
+      else { rec[p].d++; rec[p].pts++; }
+    }
   }
   const ladder = Object.keys(elo)
     .map((name) => ({ name, elo: elo[name], ...rec[name] }))
@@ -1016,13 +1083,16 @@ function ProfilePage({ ctx }) {
   const isChamp = champions.some((c) => c.isCurrent && c.member === who);
   const myHonours = honours.filter((h) => h.member === who);
 
+  // The army a primary player fielded; a doubles partner has no army of their
+  // own, so fall back to their profile faction.
+  const armyFor = (r, side) => (side === "A" ? r.armyA : r.armyB) || member?.faction || "—";
   const byArmy = {};
   for (const r of reports) {
     if (r.ranked === false) continue;
-    let army, res;
-    if (r.playerA === who) { army = r.armyA || "—"; res = r.winner === "A" ? "w" : r.winner === "B" ? "l" : "d"; }
-    else if (r.playerB === who) { army = r.armyB || "—"; res = r.winner === "B" ? "w" : r.winner === "A" ? "l" : "d"; }
-    else continue;
+    const side = reportSide(r, who);
+    if (!side) continue;
+    const army = armyFor(r, side);
+    const res = r.winner === side ? "w" : r.winner === "draw" ? "d" : "l";
     if (!byArmy[army]) byArmy[army] = { games: 0, w: 0, l: 0, d: 0 };
     byArmy[army].games++; byArmy[army][res]++;
   }
@@ -1031,18 +1101,20 @@ function ProfilePage({ ctx }) {
   const h2h = {};
   for (const r of reports) {
     if (r.ranked === false) continue;
-    let opp, res;
-    if (r.playerA === who) { opp = r.playerB; res = r.winner === "A" ? "w" : r.winner === "B" ? "l" : "d"; }
-    else if (r.playerB === who) { opp = r.playerA; res = r.winner === "B" ? "w" : r.winner === "A" ? "l" : "d"; }
-    else continue;
-    if (!opp) continue;
-    if (!h2h[opp]) h2h[opp] = { games: 0, w: 0, l: 0, d: 0 };
-    h2h[opp].games++; h2h[opp][res]++;
+    const side = reportSide(r, who);
+    if (!side) continue;
+    const { A, B } = reportTeams(r);
+    const res = r.winner === side ? "w" : r.winner === "draw" ? "d" : "l";
+    // Count every opponent on the other side (both, for a doubles game).
+    for (const opp of (side === "A" ? B : A)) {
+      if (!h2h[opp]) h2h[opp] = { games: 0, w: 0, l: 0, d: 0 };
+      h2h[opp].games++; h2h[opp][res]++;
+    }
   }
   const h2hRows = Object.entries(h2h).sort((a, b) => b[1].games - a[1].games);
 
   const recent = reports
-    .filter((r) => r.playerA === who || r.playerB === who)
+    .filter((r) => reportSide(r, who))
     .sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.created - a.created)
     .slice(0, 6);
 
@@ -1276,15 +1348,22 @@ function ProfilePage({ ctx }) {
             ) : (
               <Card className="divide-y divide-stone-200">
                 {recent.map((r) => {
-                  const opp = r.playerA === who ? r.playerB : r.playerA;
-                  const iWon = (r.playerA === who && r.winner === "A") || (r.playerB === who && r.winner === "B");
-                  const result = r.winner === "draw" ? "Draw" : iWon ? "Win" : "Loss";
+                  const side = reportSide(r, who);
+                  const { A, B } = reportTeams(r);
+                  const opps = side === "A" ? B : A;
+                  const result = r.winner === "draw" ? "Draw" : r.winner === side ? "Win" : "Loss";
                   const tone = result === "Win" ? "text-green-800" : result === "Loss" ? "text-red-900" : "text-stone-500";
                   return (
                     <div key={r.id} className="flex items-center justify-between gap-2 px-3 py-2">
                       <div className="min-w-0">
                         <p className="f-disp text-sm font-bold">
-                          vs <button onClick={() => navigate("/member/" + encodeURIComponent(opp))} className="hover:text-red-900 hover:underline">{opp}</button>
+                          vs {opps.map((opp, i) => (
+                            <span key={opp}>
+                              {i > 0 ? " & " : ""}
+                              <button onClick={() => navigate("/member/" + encodeURIComponent(opp))} className="hover:text-red-900 hover:underline">{opp}</button>
+                            </span>
+                          ))}
+                          {r.doubles && <span className="ml-1 font-normal italic text-stone-400">(doubles)</span>}
                         </p>
                         <p className="text-[11px] italic text-stone-500">{fmtDate(r.date)}{r.points ? " · " + r.points + " pts" : ""}{r.score ? " · " + r.score : ""}</p>
                       </div>
@@ -2435,8 +2514,10 @@ function BattlesTab({ ctx }) {
   const blankReport = () => ({
     playerA: "", playerB: "", armyA: "", armyB: "", date: today(), points: "1500",
     winner: "A", margin: "victory", ranked: true, score: "", moment: "", shame: [],
+    doubles: false, playerA2: "", playerB2: "",
   });
   const [rp, setRp] = useState(blankReport());
+  const [playedFx, setPlayedFx] = useState(null); // fixture id when filing from "game played"; null otherwise
   const [err, setErr] = useState("");
 
   // Resolve a typed name to the exact member name (case-insensitive), or "" if
@@ -2448,12 +2529,14 @@ function BattlesTab({ ctx }) {
   const openEditFx = (f) => {
     setErr(""); setEditingFx(f.id);
     setFx({
-      playerA: f.playerA || "", playerB: f.playerB || "", date: f.date || today(),
+      playerA: f.playerA || "", playerB: f.playerB || "", date: f.date || "",
       points: f.points || "", kind: f.kind || "friendly", pageId: f.pageId || "",
       scenario: f.scenario || "", notes: f.notes || "", round: f.round, // round carried through invisibly
     });
     setShowFx(true);
   };
+  // Toggle a fixture's date between "to be confirmed" (empty) and a real date.
+  const setFxTbc = (tbc) => setFx((p) => ({ ...p, date: tbc ? "" : today() }));
   const closeFx = () => { setShowFx(false); setEditingFx(null); setFx(blankFx()); };
   const saveFixture = async () => {
     setErr("");
@@ -2475,15 +2558,39 @@ function BattlesTab({ ctx }) {
     await reload.pages();
   };
 
+  // Open the battle-report form pre-filled from a scheduled fixture — "this game
+  // has been played". Filing the report then strikes the fixture off the slate.
+  const openPlayedFx = (f) => {
+    setErr("");
+    setRp({
+      ...blankReport(),
+      playerA: f.playerA || "", playerB: f.playerB || "",
+      date: f.date || today(), points: f.points || "1500",
+    });
+    setPlayedFx(f.id);
+    setShowRp(true);
+  };
+  const openAddRp = () => { setErr(""); setRp(blankReport()); setPlayedFx(null); setShowRp(true); };
+  const closeRp = () => { setShowRp(false); setPlayedFx(null); setRp(blankReport()); };
+
   const addReport = async () => {
     setErr("");
     if (!rp.playerA.trim() || !rp.playerB.trim()) { setErr("Name both combatants."); return; }
     const a = canonName(rp.playerA), b = canonName(rp.playerB);
     if (!a || !b) { setErr("“" + (a ? rp.playerB : rp.playerA).trim() + "” isn’t a registered member — pick a name from the list."); return; }
-    await db.reports.add({ ...rp, playerA: a, playerB: b, filedBy: user.name });
+    let a2 = "", b2 = "";
+    if (rp.doubles) {
+      if (!rp.playerA2.trim() || !rp.playerB2.trim()) { setErr("A doubles game needs a partner on each side."); return; }
+      a2 = canonName(rp.playerA2); b2 = canonName(rp.playerB2);
+      if (!a2 || !b2) { setErr("“" + (a2 ? rp.playerB2 : rp.playerA2).trim() + "” isn’t a registered member — pick a name from the list."); return; }
+      const team = [a, a2, b, b2];
+      if (new Set(team).size !== team.length) { setErr("Each of the four players must be different."); return; }
+    }
+    await db.reports.add({ ...rp, playerA: a, playerB: b, playerA2: a2, playerB2: b2, filedBy: user.name });
+    if (playedFx) await db.fixtures.remove(playedFx);
     await reload.reports();
-    setRp(blankReport());
-    setShowRp(false);
+    if (playedFx) await reload.fixtures();
+    closeRp();
   };
   const delReport = async (r) => {
     if (!(user.isAdmin || r.filedBy === user.name)) return;
@@ -2514,12 +2621,15 @@ function BattlesTab({ ctx }) {
               <p className="f-disp text-sm font-bold"><FxSide f={f} side="playerA" pages={pages} memberNames={memberNames} navigate={navigate} /> <span className="text-red-900">vs</span> <FxSide f={f} side="playerB" pages={pages} memberNames={memberNames} navigate={navigate} /></p>
               <p className="text-xs italic text-stone-500">{fmtDate(f.date)} · {competitionLabel(pages, f)}{f.points ? " · " + f.points + " pts" : ""}{f.scenario ? " · " + f.scenario : ""}{f.notes ? " · " + f.notes : ""}</p>
             </div>
-            {user.isAdmin && (
-              <div className="flex shrink-0 items-center gap-2">
-                <button onClick={() => openEditFx(f)} title="Edit this fixture" className="text-stone-400 hover:text-amber-700"><Pencil size={14} /></button>
-                <button onClick={() => delFixture(f.id)} title="Delete this fixture" className="text-stone-400 hover:text-red-800"><Trash2 size={14} /></button>
-              </div>
-            )}
+            <div className="flex shrink-0 items-center gap-2">
+              <button onClick={() => openPlayedFx(f)} title="This game has been played — file the result" className="text-stone-400 hover:text-red-900"><Swords size={14} /></button>
+              {user.isAdmin && (
+                <>
+                  <button onClick={() => openEditFx(f)} title="Edit this fixture" className="text-stone-400 hover:text-amber-700"><Pencil size={14} /></button>
+                  <button onClick={() => delFixture(f.id)} title="Delete this fixture" className="text-stone-400 hover:text-red-800"><Trash2 size={14} /></button>
+                </>
+              )}
+            </div>
           </Card>
         );
         // Group by competition first, then by round, so two leagues both running
@@ -2579,7 +2689,7 @@ function BattlesTab({ ctx }) {
         );
       })()}
 
-      <H icon={Swords} right={<B small kind="gold" onClick={() => { setErr(""); setShowRp(true); }}><Plus size={12} /> File battle report</B>}>
+      <H icon={Swords} right={<B small kind="gold" onClick={openAddRp}><Plus size={12} /> File battle report</B>}>
         Battle reports
       </H>
       {sortedReports.length === 0 ? (
@@ -2587,20 +2697,25 @@ function BattlesTab({ ctx }) {
       ) : (
         <div className="space-y-3">
           {sortedReports.map((r) => {
-            const winName = r.winner === "A" ? r.playerA : r.winner === "B" ? r.playerB : null;
+            const sideName = (side) => {
+              const lead = side === "A" ? r.playerA : r.playerB;
+              const mate = side === "A" ? r.playerA2 : r.playerB2;
+              return r.doubles && mate ? lead + " & " + mate : lead;
+            };
+            const winName = r.winner === "A" ? sideName("A") : r.winner === "B" ? sideName("B") : null;
             return (
               <Card key={r.id} className="p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="f-disp text-sm font-bold">
-                      <span className={r.winner === "A" ? "text-red-900" : ""}>{r.playerA}</span>
+                      <span className={r.winner === "A" ? "text-red-900" : ""}>{sideName("A")}</span>
                       {r.armyA ? <span className="font-normal italic text-stone-500"> ({r.armyA})</span> : null}
                       <span className="px-1.5 text-stone-400">vs</span>
-                      <span className={r.winner === "B" ? "text-red-900" : ""}>{r.playerB}</span>
+                      <span className={r.winner === "B" ? "text-red-900" : ""}>{sideName("B")}</span>
                       {r.armyB ? <span className="font-normal italic text-stone-500"> ({r.armyB})</span> : null}
                     </p>
                     <p className="mt-0.5 text-xs text-stone-500">
-                      {fmtDate(r.date)} · {r.points} pts · {winName ? (MARGIN_LABEL[r.margin] || "Victory") + ": " + winName : "Bloody draw"}{r.score ? " · " + r.score : ""}{r.ranked === false ? " · Casual" : ""}
+                      {fmtDate(r.date)} · {r.points} pts · {winName ? (MARGIN_LABEL[r.margin] || "Victory") + ": " + winName : "Bloody draw"}{r.score ? " · " + r.score : ""}{r.doubles ? " · Doubles" : ""}{r.ranked === false ? " · Casual" : ""}
                     </p>
                   </div>
                   {(user.isAdmin || r.filedBy === user.name) && (
@@ -2654,9 +2769,17 @@ function BattlesTab({ ctx }) {
             <MemberPicker members={memberNames} placeholder="Combatant A" value={fx.playerA} onChange={(v) => setFx({ ...fx, playerA: v })} />
             <MemberPicker members={memberNames} placeholder="Combatant B" value={fx.playerB} onChange={(v) => setFx({ ...fx, playerB: v })} />
             <div className="grid grid-cols-2 gap-3">
-              <Inp type="date" value={fx.date} onChange={(e) => setFx({ ...fx, date: e.target.value })} />
+              {fx.date ? (
+                <Inp type="date" value={fx.date} onChange={(e) => setFx({ ...fx, date: e.target.value })} />
+              ) : (
+                <div className="field flex items-center px-2 py-1 text-sm italic text-stone-500">Date to be confirmed</div>
+              )}
               <Inp placeholder="Points (e.g. 1500)" value={fx.points} onChange={(e) => setFx({ ...fx, points: e.target.value })} />
             </div>
+            <label className="f-body flex items-center gap-2 text-sm text-stone-700">
+              <input type="checkbox" checked={!fx.date} onChange={(e) => setFxTbc(e.target.checked)} />
+              Date to be confirmed (TBC)
+            </label>
             <div className="grid grid-cols-2 gap-3">
               <Sel value={fx.kind} onChange={(e) => setFx({ ...fx, kind: e.target.value, pageId: "" })}>
                 <option value="friendly">Friendly</option>
@@ -2679,11 +2802,17 @@ function BattlesTab({ ctx }) {
       )}
 
       {showRp && (
-        <Modal title="File a battle report" onClose={() => setShowRp(false)}>
+        <Modal title={playedFx ? "Record the result" : "File a battle report"} onClose={closeRp}>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <MemberPicker members={memberNames} placeholder="Combatant A" value={rp.playerA} onChange={(v) => setRp({ ...rp, playerA: v })} />
-              <MemberPicker members={memberNames} placeholder="Combatant B" value={rp.playerB} onChange={(v) => setRp({ ...rp, playerB: v })} />
+              <MemberPicker members={memberNames} placeholder={rp.doubles ? "Side A — player 1" : "Combatant A"} value={rp.playerA} onChange={(v) => setRp({ ...rp, playerA: v })} />
+              <MemberPicker members={memberNames} placeholder={rp.doubles ? "Side B — player 1" : "Combatant B"} value={rp.playerB} onChange={(v) => setRp({ ...rp, playerB: v })} />
+              {rp.doubles && (
+                <>
+                  <MemberPicker members={memberNames} placeholder="Side A — player 2" value={rp.playerA2} onChange={(v) => setRp({ ...rp, playerA2: v })} />
+                  <MemberPicker members={memberNames} placeholder="Side B — player 2" value={rp.playerB2} onChange={(v) => setRp({ ...rp, playerB2: v })} />
+                </>
+              )}
               <Sel value={rp.armyA} onChange={(e) => setRp({ ...rp, armyA: e.target.value })}>
                 <option value="">— Army A —</option>
                 {ARMIES.map((a) => <option key={a}>{a}</option>)}
@@ -2695,10 +2824,14 @@ function BattlesTab({ ctx }) {
               <Inp type="date" value={rp.date} onChange={(e) => setRp({ ...rp, date: e.target.value })} />
               <Inp placeholder="Points" value={rp.points} onChange={(e) => setRp({ ...rp, points: e.target.value })} />
             </div>
+            <label className="f-body flex items-center gap-2 text-sm text-stone-700">
+              <input type="checkbox" checked={rp.doubles} onChange={(e) => setRp({ ...rp, doubles: e.target.checked })} />
+              Doubles (2v2) — add a partner on each side; scoring stays the same for everyone
+            </label>
             <div className="grid grid-cols-2 gap-3">
               <Sel value={rp.winner} onChange={(e) => setRp({ ...rp, winner: e.target.value })}>
-                <option value="A">Victory: Combatant A</option>
-                <option value="B">Victory: Combatant B</option>
+                <option value="A">Victory: Side A</option>
+                <option value="B">Victory: Side B</option>
                 <option value="draw">Draw</option>
               </Sel>
               {rp.winner !== "draw" ? (

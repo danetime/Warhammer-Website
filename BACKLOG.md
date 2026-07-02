@@ -26,6 +26,13 @@ lost between sessions. Newest ideas at the top of each section.
 
 ## Shipped
 
+- **v1.4.0** — social round: comment threads on battle reports (any member;
+  a guard trigger keeps the report itself editable only by filer/admin —
+  `supabase/social.sql`); "Challenge" button on profiles creates a fixture and
+  emails the challenged player (new `challenge` type in `api/notify.js`); The
+  Herald activity feed on the home page (computed client-side, no schema);
+  streaks + nemesis on profiles, flame badges on the ladder, and an "On the
+  march" home-page banner for the longest active win streak (3+).
 - **v1.3.0** — battle reports carry their competition (`kind`/`page_id`,
   auto-filled when converting a fixture); league tables tally P/W/D/L from
   their filed reports ("Tally from reports"); reports are editable in place by

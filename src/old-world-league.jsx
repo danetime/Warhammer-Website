@@ -4,7 +4,7 @@ import {
   Swords, Trophy, Scroll, Camera, HelpCircle, Beer, Crown, Plus, Trash2,
   Pencil, LogOut, Upload, ThumbsUp, ThumbsDown, X, Shield, Skull, CalendarDays, Save,
   BookOpen, Link as LinkIcon, ChevronRight, ChevronDown, ChevronUp, Gavel, Award, Medal, Star, Utensils, ArrowLeft, Menu, Settings,
-  Download, UserX, UserPlus, MessageSquare, RefreshCw
+  Download, UserX, UserPlus, MessageSquare, RefreshCw, Flame
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 import { db, photoUrl, emblemUrl, avatarUrl } from "./lib/db";
@@ -36,11 +36,22 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const today = () => new Date().toISOString().slice(0, 10);
 
 /* App version — shown in the footer. Bump on each release. */
-const VERSION = "1.3.0";
+const VERSION = "1.4.0";
 
 /* Changelog — newest first. Add an entry whenever you bump VERSION above.
    Shown in a pop-up when you click the version number in the footer. */
 const CHANGELOG = [
+  {
+    version: "1.4.0",
+    date: "2026-07-02",
+    notes: [
+      "Banter on battle reports — every report now has a comment thread. Excuses, gloating and misfiring-cannon post-mortems, preserved for posterity.",
+      "Throw down the gauntlet — a Challenge button on every member's profile. It puts a fixture on the slate (date can be TBC) and sends them word that the gauntlet is down.",
+      "The Herald — a proclamation feed on the home page: battles fought, titles granted, photographs posted, champions crowned, motions sealed and new members enlisted, newest first.",
+      "Rivalries — your profile now shows your current streak, best-ever win streak and your nemesis (the member you're furthest behind against). The ladder marks anyone on a winning streak with a flame.",
+      "On the march — whoever holds the longest active winning streak (3 or more) is proclaimed on the home page for all to see. Somebody stop them.",
+    ],
+  },
   {
     version: "1.3.0",
     date: "2026-07-02",
@@ -435,6 +446,29 @@ function doublesLadder(reports) {
     else { ra.d++; rb.d++; }
   }
   return Object.values(pairs).sort((a, b) => b.w - a.w || b.p - a.p || a.l - b.l);
+}
+
+/* Current and best-ever win streaks per player, from ranked reports in date
+   order. Returns { name: { cur: { type: "W"|"L"|"D", len }, bestW } }. */
+function computeStreaks(reports) {
+  const s = {};
+  const sorted = [...reports]
+    .filter((r) => r.ranked !== false)
+    .sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.created || 0) - (b.created || 0));
+  for (const r of sorted) {
+    const { A, B } = reportTeams(r);
+    if (!A.length || !B.length || A.some((n) => B.includes(n))) continue;
+    for (const side of ["A", "B"]) {
+      const res = r.winner === "draw" ? "D" : r.winner === side ? "W" : "L";
+      for (const p of side === "A" ? A : B) {
+        const rec = s[p] || (s[p] = { cur: { type: null, len: 0 }, bestW: 0 });
+        if (rec.cur.type === res) rec.cur.len++;
+        else rec.cur = { type: res, len: 1 };
+        if (res === "W" && rec.cur.len > rec.bestW) rec.bestW = rec.cur.len;
+      }
+    }
+  }
+  return s;
 }
 
 function computeStandings(reports) {
@@ -1155,6 +1189,15 @@ function ProfilePage({ ctx }) {
   }
   const h2hRows = Object.entries(h2h).sort((a, b) => b[1].games - a[1].games);
 
+  // Rivalries: the current/best win streak, and the nemesis — the opponent
+  // this member is furthest behind against (2+ meetings and a losing record).
+  const myStreak = computeStreaks(reports)[who] || null;
+  let nemesis = null;
+  for (const [opp, s] of h2hRows) {
+    const deficit = s.l - s.w;
+    if (s.games >= 2 && deficit > 0 && (!nemesis || deficit > nemesis.deficit)) nemesis = { opp, deficit, s };
+  }
+
   const recent = reports
     .filter((r) => reportSide(r, who))
     .sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.created - a.created)
@@ -1182,6 +1225,27 @@ function ProfilePage({ ctx }) {
     if (!user.isAdmin) return;
     await db.honours.remove(id);
     await reload.honours();
+  };
+
+  // Throw down the gauntlet — challenge this member to a battle. Creates a
+  // fixture (any member may create one they're part of, see availability.sql)
+  // and emails the challenged player, best-effort.
+  const [showChallenge, setShowChallenge] = useState(false);
+  const [chDate, setChDate] = useState(today());
+  const [chTbc, setChTbc] = useState(false);
+  const [chPoints, setChPoints] = useState("1500");
+  const [chNote, setChNote] = useState("");
+  const [chErr, setChErr] = useState("");
+  const sendChallenge = async () => {
+    setChErr("");
+    const res = await db.fixtures.add({
+      playerA: user.name, playerB: who, date: chTbc ? "" : chDate,
+      points: chPoints, kind: "friendly", pageId: "", scenario: "", notes: chNote.trim(),
+    });
+    if (res.error) { setChErr("The challenge could not be issued. " + (res.error.message || "Try again.")); return; }
+    if (res.data?.id) notify("challenge", { id: res.data.id });
+    await reload.fixtures();
+    setShowChallenge(false); setChDate(today()); setChTbc(false); setChPoints("1500"); setChNote("");
   };
 
   const canEdit = !isPlaceholder && !!member && (member.name === user.name || user.isAdmin);
@@ -1296,6 +1360,11 @@ function ProfilePage({ ctx }) {
                       <Settings size={18} />
                     </button>
                   )}
+                  {who !== user.name && (
+                    <B small kind="gold" onClick={() => { setChErr(""); setShowChallenge(true); }} title={"Challenge " + who + " to a battle"}>
+                      <Swords size={12} /> Challenge
+                    </B>
+                  )}
                   {user.isAdmin && (
                     <B small kind="gold" onClick={() => setShowAward(true)}><Plus size={12} /> Award title</B>
                   )}
@@ -1329,6 +1398,23 @@ function ProfilePage({ ctx }) {
               <div className="flex items-center justify-between px-3 py-2"><span className="f-disp text-sm">Games played</span><span className="f-disp text-sm font-bold">{games[who] || 0}</span></div>
               <div className="flex items-center justify-between px-3 py-2"><span className="f-disp text-sm">Won / Drawn / Lost</span><span className="f-disp text-sm font-bold">{standing ? standing.w + " / " + standing.d + " / " + standing.l : "0 / 0 / 0"}</span></div>
               <div className="flex items-center justify-between px-3 py-2"><span className="f-disp text-sm">League points</span><span className="f-disp text-sm font-bold">{standing ? standing.pts : 0}</span></div>
+              <div className="flex items-center justify-between px-3 py-2">
+                <span className="f-disp text-sm">Current streak</span>
+                <span className={"f-disp text-sm font-bold " + (myStreak?.cur.type === "W" ? "text-green-800" : myStreak?.cur.type === "L" ? "text-red-900" : "")}>
+                  {myStreak && myStreak.cur.type ? (myStreak.cur.type === "W" ? "Won " : myStreak.cur.type === "L" ? "Lost " : "Drawn ") + myStreak.cur.len : "—"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between px-3 py-2"><span className="f-disp text-sm">Best win streak</span><span className="f-disp text-sm font-bold">{myStreak?.bestW || 0}</span></div>
+              {nemesis && (
+                <div className="flex items-center justify-between px-3 py-2">
+                  <span className="f-disp text-sm">Nemesis</span>
+                  <button onClick={() => navigate("/member/" + encodeURIComponent(nemesis.opp))}
+                    title={nemesis.s.w + " won, " + nemesis.s.l + " lost against them"}
+                    className="f-disp text-sm font-bold text-red-900 hover:underline">
+                    <Skull size={13} className="mr-1 inline" />{nemesis.opp} ({nemesis.s.w}–{nemesis.s.l})
+                  </button>
+                </div>
+              )}
               {!rk.isMax && <div className="px-3 py-2 text-[11px] italic text-stone-500">{rk.toNext} more {rk.army} game(s) to {(RANK_TITLES[rk.army] || RANK_TITLES["The Empire"])[rk.tier]}</div>}
             </Card>
           </div>
@@ -1419,6 +1505,31 @@ function ProfilePage({ ctx }) {
         </div>
       </main>
       <SiteFooter />
+
+      {showChallenge && (
+        <Modal title={"Throw down the gauntlet — " + who} onClose={() => setShowChallenge(false)}>
+          <div className="space-y-3">
+            <p className="f-body text-sm text-stone-600">
+              A fixture is added to the slate for you and {who}, and they're told the gauntlet is down.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              {chTbc ? (
+                <div className="f-body flex w-full items-center rounded-sm border border-amber-800/40 px-3 py-2 text-sm italic text-stone-500">Date to be confirmed</div>
+              ) : (
+                <Inp type="date" value={chDate} onChange={(e) => setChDate(e.target.value)} />
+              )}
+              <Inp placeholder="Points (e.g. 1500)" value={chPoints} onChange={(e) => setChPoints(e.target.value)} />
+            </div>
+            <label className="f-body flex items-center gap-2 text-sm text-stone-700">
+              <input type="checkbox" checked={chTbc} onChange={(e) => setChTbc(e.target.checked)} />
+              Date to be confirmed (TBC)
+            </label>
+            <Inp placeholder="A few words of provocation (optional)" value={chNote} onChange={(e) => setChNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendChallenge()} />
+            {chErr && <p className="f-body text-sm font-bold text-red-800">{chErr}</p>}
+            <B onClick={sendChallenge}><Swords size={14} /> Issue the challenge</B>
+          </div>
+        </Modal>
+      )}
 
       {showAward && (
         <Modal title={"Award a title to " + who} onClose={() => setShowAward(false)}>
@@ -1522,7 +1633,7 @@ function ProfilePage({ ctx }) {
    HOME — Town Square
    ============================================================ */
 function HomeTab({ ctx, go }) {
-  const { user, users, placeholders, fixtures, reports, quotes, champions, photosIdx, honours, availability, pages, memberNames, db, reload, refreshUsers } = ctx;
+  const { user, users, placeholders, fixtures, reports, quotes, champions, photosIdx, honours, availability, pages, proposals, memberNames, db, reload, refreshUsers } = ctx;
   const navigate = useNavigate();
   const [newQuote, setNewQuote] = useState("");
   const [saidBy, setSaidBy] = useState("");
@@ -1566,6 +1677,35 @@ function HomeTab({ ctx, go }) {
   const myFixtures = [...fixtures]
     .filter((f) => (fixtureSide(pages, memberNames, f, "playerA").member === user.name || fixtureSide(pages, memberNames, f, "playerB").member === user.name) && (!f.date || f.date >= today()))
     .sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"));
+
+  // "On the march" — the member with the longest active winning streak (3+).
+  const streaks = computeStreaks(reports);
+  let marching = null;
+  for (const [name, s] of Object.entries(streaks)) {
+    if (s.cur.type === "W" && s.cur.len >= 3 && (!marching || s.cur.len > marching.len)) marching = { name, len: s.cur.len };
+  }
+
+  // The Herald — a proclamation feed stitched from what's already loaded:
+  // battles, honours, photographs, crownings, sealed motions and enlistments.
+  const [showAllHerald, setShowAllHerald] = useState(false);
+  const heraldBattle = (r) => {
+    const { A, B } = reportTeams(r);
+    const j = (t) => t.join(" & ");
+    const comp = r.kind && r.kind !== "friendly" ? " — " + competitionLabel(pages, r) : "";
+    if (r.winner === "draw") return j(A) + " and " + j(B) + " fought to a bloody draw" + comp;
+    const [w, l] = r.winner === "A" ? [A, B] : [B, A];
+    return j(w) + " defeated " + j(l) + comp;
+  };
+  const heraldAll = [
+    ...reports.map((r) => ({ at: r.created, Icon: Swords, text: heraldBattle(r) })),
+    ...honours.map((h) => ({ at: h.created, Icon: Award, text: h.member + " was granted “" + h.title + "”" + (h.season ? " · " + h.season : "") })),
+    ...photosIdx.map((p) => ({ at: p.created, Icon: Camera, text: p.uploader + " posted a photograph" + (p.caption ? ": “" + p.caption + "”" : "") })),
+    ...champions.map((c) => ({ at: c.awardedAt || c.created, Icon: Crown, text: c.member + " was crowned Champion of the Old World" + (c.season ? " — " + c.season : "") })),
+    ...proposals.filter((p) => p.status === "sealed").map((p) => ({ at: p.sealedAt, Icon: Gavel, text: "The Council sealed “" + p.title + "”" })),
+    ...quotes.map((q) => ({ at: q.created, Icon: Beer, text: "Overheard: “" + q.text + "” — " + q.saidBy })),
+    ...directory.filter((u) => u.joined && !u.isPlaceholder).map((u) => ({ at: Date.parse(u.joined) || 0, Icon: UserPlus, text: u.name + " enlisted in the League" })),
+  ].filter((e) => e.at > 0).sort((a, b) => b.at - a.at);
+  const herald = heraldAll.slice(0, showAllHerald ? 30 : 8);
 
   useEffect(() => {
     const out = {};
@@ -1657,6 +1797,19 @@ function HomeTab({ ctx, go }) {
             )}
           </div>
         )}
+        {marching && (
+          <div className="mb-6 flex items-center gap-3 rounded-sm border border-red-800/40 bg-gradient-to-r from-red-50 to-amber-50 p-3 shadow-sm">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-900 text-amber-100">
+              <Flame size={20} />
+            </div>
+            <p className="f-body text-sm text-stone-700">
+              <span className="f-disp text-[11px] font-bold uppercase tracking-widest text-red-900">On the march</span><br />
+              <button onClick={() => navigate("/member/" + encodeURIComponent(marching.name))} className="f-disp font-bold text-red-950 hover:underline">{marching.name}</button>
+              {" "}has won <span className="font-bold">{marching.len} battles</span> without defeat. Who will halt the advance?
+            </p>
+          </div>
+        )}
+
         <H icon={CalendarDays}>Your fixtures</H>
         {myFixtures.length === 0 ? (
           <Empty>No games scheduled for you yet.</Empty>
@@ -1726,6 +1879,33 @@ function HomeTab({ ctx, go }) {
                 {showAllCalls
                   ? <><ChevronUp size={13} /> Show fewer</>
                   : <><ChevronDown size={13} /> Show {openCalls.length - 3} more</>}
+              </button>
+            )}
+          </div>
+        )}
+
+        <H icon={Scroll}>The Herald</H>
+        {herald.length === 0 ? (
+          <Empty>Nothing to proclaim yet. Fight a battle, post a photograph — make some news.</Empty>
+        ) : (
+          <div>
+            <Card className="divide-y divide-stone-200">
+              {herald.map((e, i) => (
+                <div key={e.at + ":" + i} className="flex items-start gap-2.5 px-3 py-2">
+                  <e.Icon size={14} className="mt-0.5 shrink-0 text-amber-700" />
+                  <p className="f-body flex-1 text-sm leading-snug text-stone-700">{e.text}</p>
+                  <span className="shrink-0 pt-0.5 text-[10px] italic text-stone-400">
+                    {new Date(e.at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                  </span>
+                </div>
+              ))}
+            </Card>
+            {heraldAll.length > 8 && (
+              <button onClick={() => setShowAllHerald((v) => !v)}
+                className="f-disp mt-2 flex w-full items-center justify-center gap-1 rounded-sm border border-dashed border-amber-700/40 py-1.5 text-[11px] uppercase tracking-wide text-amber-800 hover:bg-amber-100/50">
+                {showAllHerald
+                  ? <><ChevronUp size={13} /> Show fewer</>
+                  : <><ChevronDown size={13} /> Older proclamations</>}
               </button>
             )}
           </div>
@@ -2571,6 +2751,21 @@ function MemberPicker({ value, onChange, placeholder, members }) {
   );
 }
 
+/* Small comment composer for battle-report banter. Module scope so the input
+   isn't re-mounted (and focus dropped) when the parent list re-renders. */
+function CommentBox({ onAdd }) {
+  const [t, setT] = useState("");
+  const send = () => { const v = t.trim(); if (!v) return; onAdd(v); setT(""); };
+  return (
+    <div className="flex gap-2">
+      <input value={t} onChange={(e) => setT(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()}
+        placeholder="Add your banter…"
+        className="f-body flex-1 rounded-sm border border-amber-800/40 bg-white/70 px-2 py-1 text-xs text-stone-800 placeholder-stone-400" />
+      <B small kind="ghost" onClick={send}><MessageSquare size={12} /></B>
+    </div>
+  );
+}
+
 function BattlesTab({ ctx }) {
   const { user, memberNames, fixtures, reports, pages, db, reload } = ctx;
   const navigate = useNavigate();
@@ -2696,6 +2891,17 @@ function BattlesTab({ ctx }) {
     await reload.reports();
   };
 
+  const addRpComment = async (r, text) => {
+    await db.reports.setComments(r.id, [...(r.comments || []), { id: uid(), by: user.name, text, at: Date.now() }]);
+    await reload.reports();
+  };
+  const delRpComment = async (r, cid) => {
+    const c = (r.comments || []).find((x) => x.id === cid);
+    if (!(user.isAdmin || (c && c.by === user.name))) return;
+    await db.reports.setComments(r.id, (r.comments || []).filter((x) => x.id !== cid));
+    await reload.reports();
+  };
+
   const setShame = (i, field, val) => {
     const s = [...rp.shame]; s[i] = { ...s[i], [field]: val }; setRp({ ...rp, shame: s });
   };
@@ -2704,6 +2910,7 @@ function BattlesTab({ ctx }) {
   const sortedReports = [...reports].sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.created - a.created);
   const ladder = computeStandings(reports);
   const pairLadder = doublesLadder(reports);
+  const streaks = computeStreaks(reports);
 
   return (
     <div>
@@ -2842,6 +3049,19 @@ function BattlesTab({ ctx }) {
                   </p>
                 )}
                 <p className="mt-2 text-right text-[10px] italic text-stone-400">Filed by {r.filedBy}</p>
+                <div className="mt-2 space-y-1 border-t border-stone-200 pt-2">
+                  {(r.comments || []).map((c) => (
+                    <p key={c.id} className="group text-xs text-stone-700">
+                      <span className="f-disp font-bold">{c.by}</span> {c.text}
+                      <span className="ml-1.5 text-[10px] italic text-stone-400">{c.at ? new Date(c.at).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : ""}</span>
+                      {(user.isAdmin || c.by === user.name) && (
+                        <button onClick={() => delRpComment(r, c.id)} title="Remove comment"
+                          className="ml-1 hidden align-middle text-stone-400 hover:text-red-800 group-hover:inline-block"><X size={11} /></button>
+                      )}
+                    </p>
+                  ))}
+                  <CommentBox onAdd={(t) => addRpComment(r, t)} />
+                </div>
               </Card>
             );
           })}
@@ -2857,16 +3077,27 @@ function BattlesTab({ ctx }) {
               <span className="w-10">P</span><span className="w-10">W</span><span className="w-10">D</span><span className="w-10">L</span>
               <span className="w-12">Pts</span><span className="w-14 text-right">Might</span>
             </div>
-            {ladder.map((r, i) => (
+            {ladder.map((r, i) => {
+              const st = streaks[r.name];
+              const hot = st && st.cur.type === "W" && st.cur.len >= 2 ? st.cur.len : 0;
+              return (
               <div key={r.name} className={"flex items-center gap-2 px-3 py-2 text-sm " + (i % 2 ? "bg-stone-100/60" : "")}>
                 <span className="f-disp w-8 font-bold text-stone-400">{i + 1}</span>
-                <span className="f-disp flex-1 font-bold">{r.name}</span>
+                <span className="f-disp flex-1 font-bold">
+                  {r.name}
+                  {hot > 0 && (
+                    <span className="ml-1.5 inline-flex items-center gap-0.5 align-middle text-[10px] font-bold text-red-800" title={"On a " + hot + "-game winning streak"}>
+                      <Flame size={11} />W{hot}
+                    </span>
+                  )}
+                </span>
                 <span className="w-10">{r.p}</span><span className="w-10">{r.w}</span>
                 <span className="w-10">{r.d}</span><span className="w-10">{r.l}</span>
                 <span className="w-12 font-bold">{r.pts}</span>
                 <span className="w-14 text-right font-bold text-red-900">{r.elo}</span>
               </div>
-            ))}
+              );
+            })}
           </div>
         </Card>
       )}

@@ -24,7 +24,7 @@ const fromReport = (r) => ({
   shame: r.shame || [], filedBy: r.filed_by, margin: r.margin, ranked: r.ranked !== false,
   doubles: !!r.doubles, playerA2: r.player_a2 || "", playerB2: r.player_b2 || "",
   armyA2: r.army_a2 || "", armyB2: r.army_b2 || "",
-  kind: r.kind || null, pageId: r.page_id,
+  kind: r.kind || null, pageId: r.page_id, comments: r.comments || [],
   created: ts(r.created_at),
 });
 const fromQuote = (r) => ({
@@ -129,7 +129,7 @@ export const db = {
       player_a: f.playerA, player_b: f.playerB, date: f.date || null, points: f.points,
       notes: f.notes, kind: f.kind || "friendly", page_id: f.pageId || null, scenario: f.scenario || null,
       round: f.round ?? null,
-    }),
+    }).select().single(),
     update: (id, f) => supabase.from("fixtures").update({
       player_a: f.playerA, player_b: f.playerB, date: f.date || null, points: f.points,
       notes: f.notes, kind: f.kind || "friendly", page_id: f.pageId || null, scenario: f.scenario || null,
@@ -144,6 +144,7 @@ export const db = {
     }),
     // Edit in place — same fields as add, but filed_by stays with the original filer.
     update: (id, r) => supabase.from("battle_reports").update(reportRow(r)).eq("id", id),
+    setComments: (id, comments) => supabase.from("battle_reports").update({ comments }).eq("id", id),
     remove: (id) => supabase.from("battle_reports").delete().eq("id", id),
   },
   quotes: {

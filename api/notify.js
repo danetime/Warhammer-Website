@@ -114,6 +114,30 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, sent: to ? 1 : 0 });
     }
 
+    if (type === "challenge") {
+      // A member threw down the gauntlet from another member's profile: the
+      // app created the fixture, we email the challenged player. Recipient and
+      // content are derived from the fixture row, never trusted from the client.
+      const { data: f } = await db.from("fixtures").select("*").eq("id", body.id).single();
+      if (!f) return res.status(404).json({ error: "No such fixture." });
+      if (f.player_a !== myName && f.player_b !== myName) return res.status(403).json({ error: "Not your fixture." });
+      const target = f.player_a === myName ? f.player_b : f.player_a;
+      const { data: prof } = await db.from("profiles").select("id, email_prefs").eq("display_name", target).maybeSingle();
+      const emails = await emailMap(db);
+      const to = prof && (prof.email_prefs || {}).broadcasts !== false ? emails[prof.id] : null;
+      if (to) {
+        await sendMail({
+          from, to,
+          subject: `${myName} has thrown down the gauntlet`,
+          text: `${myName} has challenged you to a battle on ${fmtDate(f.date)}.` +
+            (f.points ? `\n${f.points} points.` : "") +
+            (f.notes ? `\n\n“${f.notes}”` : "") +
+            `\n\nThe fixture is on the slate — answer on the League site.` + footer,
+        });
+      }
+      return res.status(200).json({ ok: true, sent: to ? 1 : 0 });
+    }
+
     if (type === "gathering") {
       if (!me?.is_admin) return res.status(403).json({ error: "Admins only." });
       const { data: row } = await db.from("settings").select("value").eq("key", "next_social").maybeSingle();

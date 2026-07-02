@@ -2562,9 +2562,14 @@ function BattlesTab({ ctx }) {
   // has been played". Filing the report then strikes the fixture off the slate.
   const openPlayedFx = (f) => {
     setErr("");
+    // A league fixture can be stored under a table-row label rather than a
+    // username — resolve each side to the real member so the pre-filled names
+    // pass the muster-roll check on save.
+    const a = fixtureSide(pages, memberNames, f, "playerA");
+    const b = fixtureSide(pages, memberNames, f, "playerB");
     setRp({
       ...blankReport(),
-      playerA: f.playerA || "", playerB: f.playerB || "",
+      playerA: a.member || f.playerA || "", playerB: b.member || f.playerB || "",
       date: f.date || today(), points: f.points || "1500",
     });
     setPlayedFx(f.id);
@@ -2586,7 +2591,11 @@ function BattlesTab({ ctx }) {
       const team = [a, a2, b, b2];
       if (new Set(team).size !== team.length) { setErr("Each of the four players must be different."); return; }
     }
-    await db.reports.add({ ...rp, playerA: a, playerB: b, playerA2: a2, playerB2: b2, filedBy: user.name });
+    const res = await db.reports.add({ ...rp, playerA: a, playerB: b, playerA2: a2, playerB2: b2, filedBy: user.name });
+    if (res.error) { setErr("Filing failed — the record was not saved. " + (res.error.message || "Try again.")); return; }
+    // Strike the played fixture only once the report is safely filed. Best
+    // effort: RLS lets a member delete a fixture they're named in (see
+    // supabase/fixtures-played.sql); anything else stays for the Marshal.
     if (playedFx) await db.fixtures.remove(playedFx);
     await reload.reports();
     if (playedFx) await reload.fixtures();
@@ -2772,7 +2781,7 @@ function BattlesTab({ ctx }) {
               {fx.date ? (
                 <Inp type="date" value={fx.date} onChange={(e) => setFx({ ...fx, date: e.target.value })} />
               ) : (
-                <div className="field flex items-center px-2 py-1 text-sm italic text-stone-500">Date to be confirmed</div>
+                <div className="f-body flex w-full items-center rounded-sm border border-amber-800/40 px-3 py-2 text-sm italic text-stone-500">Date to be confirmed</div>
               )}
               <Inp placeholder="Points (e.g. 1500)" value={fx.points} onChange={(e) => setFx({ ...fx, points: e.target.value })} />
             </div>

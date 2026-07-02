@@ -31,6 +31,10 @@ lost between sessions. Newest ideas at the top of each section.
   once filed; doubles (2v2) battles via a tick on the report form — partner per
   side stored in `player_a2` / `player_b2`, with league points and Might awarded
   to all four players exactly as a singles game (`supabase/doubles.sql`).
+  Follow-up hardening: the fixture is only struck once the report saves, the
+  pre-fill resolves league-row labels to real member names, and
+  `supabase/fixtures-played.sql` lets a member strike a fixture they're named
+  in under RLS (label-stored league fixtures still need the Marshal).
 - **v1.1.1** — username changes: members can rename themselves, and admins can
   rename anyone (from the profile Settings dialog or the admin Members panel).
   The `rename_member()` RPC carries all history across server-side; the collision

@@ -4,7 +4,7 @@ import {
   Swords, Trophy, Scroll, Camera, HelpCircle, Beer, Crown, Plus, Trash2,
   Pencil, LogOut, Upload, ThumbsUp, ThumbsDown, X, Shield, Skull, CalendarDays, Save,
   BookOpen, Link as LinkIcon, ChevronRight, ChevronDown, ChevronUp, Gavel, Award, Medal, Star, Utensils, ArrowLeft, Menu, Settings,
-  Download, UserX, UserPlus, MessageSquare
+  Download, UserX, UserPlus, MessageSquare, RefreshCw
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 import { db, photoUrl, emblemUrl, avatarUrl } from "./lib/db";
@@ -36,11 +36,22 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const today = () => new Date().toISOString().slice(0, 10);
 
 /* App version — shown in the footer. Bump on each release. */
-const VERSION = "1.2.0";
+const VERSION = "1.3.0";
 
 /* Changelog — newest first. Add an entry whenever you bump VERSION above.
    Shown in a pop-up when you click the version number in the footer. */
 const CHANGELOG = [
+  {
+    version: "1.3.0",
+    date: "2026-07-02",
+    notes: [
+      "Battle reports now carry their competition — pick Friendly / League / Cup when filing, and it's carried over automatically when a fixture is converted with “this game has been played”.",
+      "League tables can tally themselves — the Grand Marshal's new “Tally from reports” button recounts a league's P/W/D/L straight from the reports filed against it. No more typing the numbers in by hand.",
+      "Battle reports can be edited — the filer (or the Grand Marshal) can correct a report in place instead of striking and refiling it. The ladder recalculates itself.",
+      "Doubles partners can record their own army, so 2v2 games count toward the right army records and ranks.",
+      "A Doubles pairs table on the Battles tab — bragging rights for the best 2v2 pairing, without touching the main ladder.",
+    ],
+  },
   {
     version: "1.2.0",
     date: "2026-06-30",
@@ -277,12 +288,12 @@ function gamesByArmyMap(reports, users) {
     const a = (r.playerA || "").trim(), b = (r.playerB || "").trim();
     bump(a, r.armyA);
     if (b && b !== a) bump(b, r.armyB);
-    // Doubles partners have no army of their own, so they fall back to their
-    // profile faction inside bump(). Their game still counts towards rank.
+    // Doubles partners count with the army they fielded (army_a2/army_b2);
+    // if unrecorded, bump() falls back to their profile faction.
     if (r.doubles) {
       const a2 = (r.playerA2 || "").trim(), b2 = (r.playerB2 || "").trim();
-      if (a2 && a2 !== a) bump(a2, null);
-      if (b2 && b2 !== b && b2 !== a2) bump(b2, null);
+      if (a2 && a2 !== a) bump(a2, r.armyA2);
+      if (b2 && b2 !== b && b2 !== a2) bump(b2, r.armyB2);
     }
   }
   return m;
@@ -392,6 +403,38 @@ function reportSide(r, who) {
   if (A.includes(who)) return "A";
   if (B.includes(who)) return "B";
   return null;
+}
+
+/* The army a named player fielded in a report, whichever of the four slots
+   they occupied. "" if unrecorded (callers fall back to profile faction). */
+function playerArmyIn(r, who) {
+  const eq = (n) => (n || "").trim() === who;
+  if (eq(r.playerA)) return r.armyA || "";
+  if (eq(r.playerB)) return r.armyB || "";
+  if (r.doubles && eq(r.playerA2)) return r.armyA2 || "";
+  if (r.doubles && eq(r.playerB2)) return r.armyB2 || "";
+  return "";
+}
+
+/* Pair records from ranked doubles games — the 2v2 bragging-rights table.
+   A pair is the two names on a side, order-independent. */
+function doublesLadder(reports) {
+  const pairs = {};
+  for (const r of reports) {
+    if (!r.doubles || r.ranked === false) continue;
+    const { A, B } = reportTeams(r);
+    if (A.length !== 2 || B.length !== 2 || A.some((n) => B.includes(n))) continue;
+    const rec = (t) => {
+      const k = [...t].sort().join(" & ");
+      return pairs[k] || (pairs[k] = { pair: k, p: 0, w: 0, d: 0, l: 0 });
+    };
+    const ra = rec(A), rb = rec(B);
+    ra.p++; rb.p++;
+    if (r.winner === "A") { ra.w++; rb.l++; }
+    else if (r.winner === "B") { rb.w++; ra.l++; }
+    else { ra.d++; rb.d++; }
+  }
+  return Object.values(pairs).sort((a, b) => b.w - a.w || b.p - a.p || a.l - b.l);
 }
 
 function computeStandings(reports) {
@@ -1083,15 +1126,14 @@ function ProfilePage({ ctx }) {
   const isChamp = champions.some((c) => c.isCurrent && c.member === who);
   const myHonours = honours.filter((h) => h.member === who);
 
-  // The army a primary player fielded; a doubles partner has no army of their
-  // own, so fall back to their profile faction.
-  const armyFor = (r, side) => (side === "A" ? r.armyA : r.armyB) || member?.faction || "—";
   const byArmy = {};
   for (const r of reports) {
     if (r.ranked === false) continue;
     const side = reportSide(r, who);
     if (!side) continue;
-    const army = armyFor(r, side);
+    // Whichever of the four slots they played, count the army they fielded;
+    // unrecorded falls back to their profile faction.
+    const army = playerArmyIn(r, who) || member?.faction || "—";
     const res = r.winner === side ? "w" : r.winner === "draw" ? "d" : "l";
     if (!byArmy[army]) byArmy[army] = { games: 0, w: 0, l: 0, d: 0 };
     byArmy[army].games++; byArmy[army][res]++;
@@ -1937,7 +1979,7 @@ function EmblemManager({ ctx, onClose }) {
 }
 
 function PagesTab({ ctx, kind }) {
-  const { user, pages, emblems, memberNames, db, reload } = ctx;
+  const { user, pages, reports, emblems, memberNames, db, reload } = ctx;
   const mine = pages.filter((p) => p.kind === kind);
   const [editingId, setEditingId] = useState(null);
   const [showNew, setShowNew] = useState(false);
@@ -1976,6 +2018,31 @@ function PagesTab({ ctx, kind }) {
   };
   const updatePage = async (pg) => { await db.pages.update(pg.id, { title: pg.title, rows: pg.rows, info: pg.info || {} }); await reload.pages(); };
   const deletePage = async (id) => { await db.pages.remove(id); await reload.pages(); setEditingId(null); };
+
+  // Recount a league table's P/W/D/L from the battle reports filed against it
+  // (reports carry the competition via kind/pageId — see reports-v2.sql).
+  // Names, armies and member links are kept; Pts stays derived from W and D.
+  const tallyPage = async (pg) => {
+    const linked = reports.filter((r) => r.pageId === pg.id && r.ranked !== false);
+    if (!linked.length) {
+      alert("No reports are filed against “" + pg.title + "” yet. File battle reports with “League: " + pg.title + "” set, then tally again.");
+      return;
+    }
+    if (!confirm("Recount P / W / D / L for “" + pg.title + "” from its " + linked.length + " filed report(s)? The numbers in the table are overwritten; names, armies and links are kept.")) return;
+    const rows = (pg.rows || []).map((row) => {
+      const nm = row.member || (memberNames || []).find((n) => n.toLowerCase() === (row.player || "").toLowerCase()) || (row.player || "").trim();
+      let p = 0, w = 0, d = 0, l = 0;
+      for (const r of linked) {
+        const side = nm && reportSide(r, nm);
+        if (!side) continue;
+        p++;
+        if (r.winner === "draw") d++; else if (r.winner === side) w++; else l++;
+      }
+      return { ...row, p: String(p), w: String(w), d: String(d), l: String(l) };
+    });
+    await db.pages.update(pg.id, { rows });
+    await reload.pages();
+  };
   const generateFixtures = async () => {
     if (!genPage) return;
     const players = [];
@@ -2050,7 +2117,8 @@ function PagesTab({ ctx, kind }) {
               onDelete={() => deletePage(pg.id)}
               blankRow={blankRow} emblems={emblems} memberNames={memberNames} />
             {kind === "league" && isAdmin && (
-              <div className="mt-1 flex justify-end gap-2">
+              <div className="mt-1 flex flex-wrap justify-end gap-2">
+                <B small kind="ghost" onClick={() => tallyPage(pg)}><RefreshCw size={12} /> Tally from reports</B>
                 <B small kind="ghost" onClick={() => openManual(pg)}><Pencil size={12} /> Build by hand</B>
                 <B small kind="ghost" onClick={() => setGenPage(pg)}><CalendarDays size={12} /> Generate fixtures</B>
               </div>
@@ -2514,10 +2582,12 @@ function BattlesTab({ ctx }) {
   const blankReport = () => ({
     playerA: "", playerB: "", armyA: "", armyB: "", date: today(), points: "1500",
     winner: "A", margin: "victory", ranked: true, score: "", moment: "", shame: [],
-    doubles: false, playerA2: "", playerB2: "",
+    doubles: false, playerA2: "", playerB2: "", armyA2: "", armyB2: "",
+    kind: "friendly", pageId: "",
   });
   const [rp, setRp] = useState(blankReport());
   const [playedFx, setPlayedFx] = useState(null); // fixture id when filing from "game played"; null otherwise
+  const [editingRp, setEditingRp] = useState(null); // report id while editing; null when filing new
   const [err, setErr] = useState("");
 
   // Resolve a typed name to the exact member name (case-insensitive), or "" if
@@ -2571,12 +2641,27 @@ function BattlesTab({ ctx }) {
       ...blankReport(),
       playerA: a.member || f.playerA || "", playerB: b.member || f.playerB || "",
       date: f.date || today(), points: f.points || "1500",
+      kind: f.kind || "friendly", pageId: f.pageId || "", // competition carries onto the report
     });
     setPlayedFx(f.id);
+    setEditingRp(null);
     setShowRp(true);
   };
-  const openAddRp = () => { setErr(""); setRp(blankReport()); setPlayedFx(null); setShowRp(true); };
-  const closeRp = () => { setShowRp(false); setPlayedFx(null); setRp(blankReport()); };
+  const openAddRp = () => { setErr(""); setRp(blankReport()); setPlayedFx(null); setEditingRp(null); setShowRp(true); };
+  const openEditRp = (r) => {
+    setErr(""); setEditingRp(r.id); setPlayedFx(null);
+    setRp({
+      playerA: r.playerA || "", playerB: r.playerB || "", armyA: r.armyA || "", armyB: r.armyB || "",
+      date: r.date || today(), points: r.points || "", winner: r.winner || "A",
+      margin: r.margin || "victory", ranked: r.ranked !== false, score: r.score || "",
+      moment: r.moment || "", shame: r.shame || [],
+      doubles: !!r.doubles, playerA2: r.playerA2 || "", playerB2: r.playerB2 || "",
+      armyA2: r.armyA2 || "", armyB2: r.armyB2 || "",
+      kind: r.kind || "friendly", pageId: r.pageId || "",
+    });
+    setShowRp(true);
+  };
+  const closeRp = () => { setShowRp(false); setPlayedFx(null); setEditingRp(null); setRp(blankReport()); };
 
   const addReport = async () => {
     setErr("");
@@ -2591,7 +2676,10 @@ function BattlesTab({ ctx }) {
       const team = [a, a2, b, b2];
       if (new Set(team).size !== team.length) { setErr("Each of the four players must be different."); return; }
     }
-    const res = await db.reports.add({ ...rp, playerA: a, playerB: b, playerA2: a2, playerB2: b2, filedBy: user.name });
+    const clean = { ...rp, playerA: a, playerB: b, playerA2: a2, playerB2: b2 };
+    const res = editingRp
+      ? await db.reports.update(editingRp, clean)
+      : await db.reports.add({ ...clean, filedBy: user.name });
     if (res.error) { setErr("Filing failed — the record was not saved. " + (res.error.message || "Try again.")); return; }
     // Strike the played fixture only once the report is safely filed. Best
     // effort: RLS lets a member delete a fixture they're named in (see
@@ -2615,6 +2703,7 @@ function BattlesTab({ ctx }) {
   const sortedFixtures = [...fixtures].sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"));
   const sortedReports = [...reports].sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.created - a.created);
   const ladder = computeStandings(reports);
+  const pairLadder = doublesLadder(reports);
 
   return (
     <div>
@@ -2711,6 +2800,13 @@ function BattlesTab({ ctx }) {
               const mate = side === "A" ? r.playerA2 : r.playerB2;
               return r.doubles && mate ? lead + " & " + mate : lead;
             };
+            // Combined armies for a side — "Empire & Skaven" when both doubles
+            // partners recorded theirs, otherwise whichever is known.
+            const sideArmies = (side) => {
+              const lead = side === "A" ? r.armyA : r.armyB;
+              const mate = r.doubles ? (side === "A" ? r.armyA2 : r.armyB2) : "";
+              return [lead, mate].filter(Boolean).join(" & ");
+            };
             const winName = r.winner === "A" ? sideName("A") : r.winner === "B" ? sideName("B") : null;
             return (
               <Card key={r.id} className="p-4">
@@ -2718,17 +2814,20 @@ function BattlesTab({ ctx }) {
                   <div>
                     <p className="f-disp text-sm font-bold">
                       <span className={r.winner === "A" ? "text-red-900" : ""}>{sideName("A")}</span>
-                      {r.armyA ? <span className="font-normal italic text-stone-500"> ({r.armyA})</span> : null}
+                      {sideArmies("A") ? <span className="font-normal italic text-stone-500"> ({sideArmies("A")})</span> : null}
                       <span className="px-1.5 text-stone-400">vs</span>
                       <span className={r.winner === "B" ? "text-red-900" : ""}>{sideName("B")}</span>
-                      {r.armyB ? <span className="font-normal italic text-stone-500"> ({r.armyB})</span> : null}
+                      {sideArmies("B") ? <span className="font-normal italic text-stone-500"> ({sideArmies("B")})</span> : null}
                     </p>
                     <p className="mt-0.5 text-xs text-stone-500">
-                      {fmtDate(r.date)} · {r.points} pts · {winName ? (MARGIN_LABEL[r.margin] || "Victory") + ": " + winName : "Bloody draw"}{r.score ? " · " + r.score : ""}{r.doubles ? " · Doubles" : ""}{r.ranked === false ? " · Casual" : ""}
+                      {fmtDate(r.date)} · {r.points} pts · {winName ? (MARGIN_LABEL[r.margin] || "Victory") + ": " + winName : "Bloody draw"}{r.score ? " · " + r.score : ""}{r.kind ? " · " + competitionLabel(pages, r) : ""}{r.doubles ? " · Doubles" : ""}{r.ranked === false ? " · Casual" : ""}
                     </p>
                   </div>
                   {(user.isAdmin || r.filedBy === user.name) && (
-                    <button onClick={() => delReport(r)} className="shrink-0 text-stone-400 hover:text-red-800"><Trash2 size={14} /></button>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button onClick={() => openEditRp(r)} title="Correct this report" className="text-stone-400 hover:text-amber-700"><Pencil size={14} /></button>
+                      <button onClick={() => delReport(r)} title="Strike this report" className="text-stone-400 hover:text-red-800"><Trash2 size={14} /></button>
+                    </div>
                   )}
                 </div>
                 {r.moment && (
@@ -2772,6 +2871,28 @@ function BattlesTab({ ctx }) {
         </Card>
       )}
 
+      {pairLadder.length > 0 && (
+        <>
+          <H icon={Medal}>Doubles pairs</H>
+          <Card className="overflow-x-auto">
+            <div className="min-w-[360px]">
+              <div className="f-disp flex gap-2 border-b border-stone-300 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-stone-500">
+                <span className="w-8">#</span><span className="flex-1">Pair</span>
+                <span className="w-10">P</span><span className="w-10">W</span><span className="w-10">D</span><span className="w-10">L</span>
+              </div>
+              {pairLadder.map((r, i) => (
+                <div key={r.pair} className={"flex items-center gap-2 px-3 py-2 text-sm " + (i % 2 ? "bg-stone-100/60" : "")}>
+                  <span className="f-disp w-8 font-bold text-stone-400">{i + 1}</span>
+                  <span className="f-disp flex-1 font-bold">{r.pair}</span>
+                  <span className="w-10">{r.p}</span><span className="w-10 font-bold text-green-800">{r.w}</span>
+                  <span className="w-10">{r.d}</span><span className="w-10 text-red-900">{r.l}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </>
+      )}
+
       {showFx && (
         <Modal title={editingFx ? "Edit fixture" : "Schedule a battle"} onClose={closeFx}>
           <div className="space-y-3">
@@ -2811,25 +2932,33 @@ function BattlesTab({ ctx }) {
       )}
 
       {showRp && (
-        <Modal title={playedFx ? "Record the result" : "File a battle report"} onClose={closeRp}>
+        <Modal title={editingRp ? "Edit battle report" : playedFx ? "Record the result" : "File a battle report"} onClose={closeRp}>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <MemberPicker members={memberNames} placeholder={rp.doubles ? "Side A — player 1" : "Combatant A"} value={rp.playerA} onChange={(v) => setRp({ ...rp, playerA: v })} />
               <MemberPicker members={memberNames} placeholder={rp.doubles ? "Side B — player 1" : "Combatant B"} value={rp.playerB} onChange={(v) => setRp({ ...rp, playerB: v })} />
+              <Sel value={rp.armyA} onChange={(e) => setRp({ ...rp, armyA: e.target.value })}>
+                <option value="">{rp.doubles ? "— Army: A player 1 —" : "— Army A —"}</option>
+                {ARMIES.map((a) => <option key={a}>{a}</option>)}
+              </Sel>
+              <Sel value={rp.armyB} onChange={(e) => setRp({ ...rp, armyB: e.target.value })}>
+                <option value="">{rp.doubles ? "— Army: B player 1 —" : "— Army B —"}</option>
+                {ARMIES.map((a) => <option key={a}>{a}</option>)}
+              </Sel>
               {rp.doubles && (
                 <>
                   <MemberPicker members={memberNames} placeholder="Side A — player 2" value={rp.playerA2} onChange={(v) => setRp({ ...rp, playerA2: v })} />
                   <MemberPicker members={memberNames} placeholder="Side B — player 2" value={rp.playerB2} onChange={(v) => setRp({ ...rp, playerB2: v })} />
+                  <Sel value={rp.armyA2} onChange={(e) => setRp({ ...rp, armyA2: e.target.value })}>
+                    <option value="">— Army: A player 2 —</option>
+                    {ARMIES.map((a) => <option key={a}>{a}</option>)}
+                  </Sel>
+                  <Sel value={rp.armyB2} onChange={(e) => setRp({ ...rp, armyB2: e.target.value })}>
+                    <option value="">— Army: B player 2 —</option>
+                    {ARMIES.map((a) => <option key={a}>{a}</option>)}
+                  </Sel>
                 </>
               )}
-              <Sel value={rp.armyA} onChange={(e) => setRp({ ...rp, armyA: e.target.value })}>
-                <option value="">— Army A —</option>
-                {ARMIES.map((a) => <option key={a}>{a}</option>)}
-              </Sel>
-              <Sel value={rp.armyB} onChange={(e) => setRp({ ...rp, armyB: e.target.value })}>
-                <option value="">— Army B —</option>
-                {ARMIES.map((a) => <option key={a}>{a}</option>)}
-              </Sel>
               <Inp type="date" value={rp.date} onChange={(e) => setRp({ ...rp, date: e.target.value })} />
               <Inp placeholder="Points" value={rp.points} onChange={(e) => setRp({ ...rp, points: e.target.value })} />
             </div>
@@ -2837,6 +2966,19 @@ function BattlesTab({ ctx }) {
               <input type="checkbox" checked={rp.doubles} onChange={(e) => setRp({ ...rp, doubles: e.target.checked })} />
               Doubles (2v2) — add a partner on each side; scoring stays the same for everyone
             </label>
+            <div className="grid grid-cols-2 gap-3">
+              <Sel value={rp.kind} onChange={(e) => setRp({ ...rp, kind: e.target.value, pageId: "" })}>
+                <option value="friendly">Friendly</option>
+                <option value="league">League</option>
+                <option value="cup">Cup</option>
+              </Sel>
+              {rp.kind !== "friendly" ? (
+                <Sel value={rp.pageId} onChange={(e) => setRp({ ...rp, pageId: e.target.value })}>
+                  <option value="">— which {rp.kind === "league" ? "league" : "cup"}? —</option>
+                  {pages.filter((p) => p.kind === rp.kind).map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+                </Sel>
+              ) : <div />}
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <Sel value={rp.winner} onChange={(e) => setRp({ ...rp, winner: e.target.value })}>
                 <option value="A">Victory: Side A</option>
@@ -2871,7 +3013,7 @@ function BattlesTab({ ctx }) {
               </B>
             </div>
             {err && <p className="f-body text-sm font-bold text-red-800">{err}</p>}
-            <B onClick={addReport}><Swords size={14} /> File report</B>
+            <B onClick={addReport}>{editingRp ? <><Save size={14} /> Save changes</> : <><Swords size={14} /> File report</>}</B>
           </div>
         </Modal>
       )}

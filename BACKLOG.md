@@ -26,6 +26,13 @@ lost between sessions. Newest ideas at the top of each section.
 
 ## Shipped
 
+- **v1.3.0** — battle reports carry their competition (`kind`/`page_id`,
+  auto-filled when converting a fixture); league tables tally P/W/D/L from
+  their filed reports ("Tally from reports"); reports are editable in place by
+  the filer or an admin; doubles partners record their own army
+  (`army_a2`/`army_b2`); a Doubles pairs table on the Battles tab
+  (`supabase/reports-v2.sql`).
+
 - **v1.2.0** — fixtures can be left date-TBC; a fixture can be turned straight
   into a battle report ("this game has been played"), which strikes the fixture
   once filed; doubles (2v2) battles via a tick on the report form — partner per

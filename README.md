@@ -130,6 +130,9 @@ supabase/
   committed-lists.sql    committed army lists per league/cup (sealed once locked)
   placeholders.sql       placeholder members + merge_placeholder() (link to an account)
   doubles.sql            doubles (2v2) battles — partner per side on battle reports
+  fixtures-played.sql    members may strike a fixture they played (game-played flow)
+  reports-v2.sql         report competition link, partner armies, edit-in-place policy
+  social.sql             comments on battle reports + guard trigger (run after reports-v2)
 BACKLOG.md               Feature list & backlog (deferred ideas, tech debt)
 docs/
   build-guide.py         Generates the field-manual PDF (needs `pip install reportlab`)

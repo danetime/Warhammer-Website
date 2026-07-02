@@ -23,6 +23,8 @@ const fromReport = (r) => ({
   date: r.date, points: r.points, winner: r.winner, score: r.score, moment: r.moment,
   shame: r.shame || [], filedBy: r.filed_by, margin: r.margin, ranked: r.ranked !== false,
   doubles: !!r.doubles, playerA2: r.player_a2 || "", playerB2: r.player_b2 || "",
+  armyA2: r.army_a2 || "", armyB2: r.army_b2 || "",
+  kind: r.kind || null, pageId: r.page_id, comments: r.comments || [],
   created: ts(r.created_at),
 });
 const fromQuote = (r) => ({
@@ -71,6 +73,20 @@ const fromPlaceholder = (r) => ({
   note: r.note || "", joined: r.joined, created: ts(r.created_at), isPlaceholder: true,
 });
 
+/* battle report UI shape -> DB row (shared by add and update) */
+const reportRow = (r) => ({
+  player_a: r.playerA, player_b: r.playerB, army_a: r.armyA, army_b: r.armyB,
+  date: r.date || null, points: r.points, winner: r.winner,
+  margin: r.winner === "draw" ? null : (r.margin || "victory"),
+  ranked: r.ranked !== false, score: r.score,
+  moment: r.moment, shame: r.shame || [],
+  doubles: !!r.doubles, player_a2: (r.doubles && r.playerA2) ? r.playerA2 : null,
+  player_b2: (r.doubles && r.playerB2) ? r.playerB2 : null,
+  army_a2: (r.doubles && r.armyA2) ? r.armyA2 : null,
+  army_b2: (r.doubles && r.armyB2) ? r.armyB2 : null,
+  kind: r.kind || null, page_id: r.pageId || null,
+});
+
 const list = async (table, mapper) => {
   try {
     const { data, error } = await supabase.from(table).select("*").order("created_at", { ascending: true });
@@ -113,7 +129,7 @@ export const db = {
       player_a: f.playerA, player_b: f.playerB, date: f.date || null, points: f.points,
       notes: f.notes, kind: f.kind || "friendly", page_id: f.pageId || null, scenario: f.scenario || null,
       round: f.round ?? null,
-    }),
+    }).select().single(),
     update: (id, f) => supabase.from("fixtures").update({
       player_a: f.playerA, player_b: f.playerB, date: f.date || null, points: f.points,
       notes: f.notes, kind: f.kind || "friendly", page_id: f.pageId || null, scenario: f.scenario || null,
@@ -124,14 +140,11 @@ export const db = {
   reports: {
     list: () => list("battle_reports", fromReport),
     add: (r) => supabase.from("battle_reports").insert({
-      player_a: r.playerA, player_b: r.playerB, army_a: r.armyA, army_b: r.armyB,
-      date: r.date || null, points: r.points, winner: r.winner,
-      margin: r.winner === "draw" ? null : (r.margin || "victory"),
-      ranked: r.ranked !== false, score: r.score,
-      moment: r.moment, shame: r.shame || [], filed_by: r.filedBy,
-      doubles: !!r.doubles, player_a2: (r.doubles && r.playerA2) ? r.playerA2 : null,
-      player_b2: (r.doubles && r.playerB2) ? r.playerB2 : null,
+      ...reportRow(r), filed_by: r.filedBy,
     }),
+    // Edit in place — same fields as add, but filed_by stays with the original filer.
+    update: (id, r) => supabase.from("battle_reports").update(reportRow(r)).eq("id", id),
+    setComments: (id, comments) => supabase.from("battle_reports").update({ comments }).eq("id", id),
     remove: (id) => supabase.from("battle_reports").delete().eq("id", id),
   },
   quotes: {

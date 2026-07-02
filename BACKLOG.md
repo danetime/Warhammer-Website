@@ -26,6 +26,29 @@ lost between sessions. Newest ideas at the top of each section.
 
 ## Shipped
 
+- **v1.4.0** — social round: comment threads on battle reports (any member;
+  a guard trigger keeps the report itself editable only by filer/admin —
+  `supabase/social.sql`); "Challenge" button on profiles creates a fixture and
+  emails the challenged player (new `challenge` type in `api/notify.js`); The
+  Herald activity feed on the home page (computed client-side, no schema);
+  streaks + nemesis on profiles, flame badges on the ladder, and an "On the
+  march" home-page banner for the longest active win streak (3+).
+- **v1.3.0** — battle reports carry their competition (`kind`/`page_id`,
+  auto-filled when converting a fixture); league tables tally P/W/D/L from
+  their filed reports ("Tally from reports"); reports are editable in place by
+  the filer or an admin; doubles partners record their own army
+  (`army_a2`/`army_b2`); a Doubles pairs table on the Battles tab
+  (`supabase/reports-v2.sql`).
+
+- **v1.2.0** — fixtures can be left date-TBC; a fixture can be turned straight
+  into a battle report ("this game has been played"), which strikes the fixture
+  once filed; doubles (2v2) battles via a tick on the report form — partner per
+  side stored in `player_a2` / `player_b2`, with league points and Might awarded
+  to all four players exactly as a singles game (`supabase/doubles.sql`).
+  Follow-up hardening: the fixture is only struck once the report saves, the
+  pre-fill resolves league-row labels to real member names, and
+  `supabase/fixtures-played.sql` lets a member strike a fixture they're named
+  in under RLS (label-stored league fixtures still need the Marshal).
 - **v1.1.1** — username changes: members can rename themselves, and admins can
   rename anyone (from the profile Settings dialog or the admin Members panel).
   The `rename_member()` RPC carries all history across server-side; the collision

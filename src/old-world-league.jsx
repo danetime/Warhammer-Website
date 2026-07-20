@@ -36,11 +36,18 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const today = () => new Date().toISOString().slice(0, 10);
 
 /* App version — shown in the footer. Bump on each release. */
-const VERSION = "1.4.0";
+const VERSION = "1.4.1";
 
 /* Changelog — newest first. Add an entry whenever you bump VERSION above.
    Shown in a pop-up when you click the version number in the footer. */
 const CHANGELOG = [
+  {
+    version: "1.4.1",
+    date: "2026-07-20",
+    notes: [
+      "Change your watchword — set a new sign-in watchword any time from your profile's Settings (the cog). Forgotten it completely? The Grand Marshal can reset it from the muster records.",
+    ],
+  },
   {
     version: "1.4.0",
     date: "2026-07-02",
@@ -1212,6 +1219,10 @@ function ProfilePage({ ctx }) {
   const [emailPrefs, setEmailPrefs] = useState({});
   const [editErr, setEditErr] = useState("");
   const [saving, setSaving] = useState(false);
+  const [pw1, setPw1] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [pwMsg, setPwMsg] = useState(null);   // { ok, text } after a watchword change
+  const [pwBusy, setPwBusy] = useState(false);
   const [cat, setCat] = useState("league");
   const [hTitle, setHTitle] = useState("");
   const [hSeason, setHSeason] = useState("");
@@ -1294,6 +1305,19 @@ function ProfilePage({ ctx }) {
       setSaving(false);
     }
   };
+  // Change your OWN sign-in watchword. Supabase updates the logged-in user;
+  // it doesn't touch the display name or any league history. Self only —
+  // resetting a forgotten watchword for someone else is done from Supabase.
+  const changePw = async () => {
+    if (pwBusy) return;
+    if (pw1.length < 6) { setPwMsg({ ok: false, text: "Use at least 6 characters." }); return; }
+    if (pw1 !== pw2) { setPwMsg({ ok: false, text: "The watchwords do not match." }); return; }
+    setPwBusy(true); setPwMsg(null);
+    const { error } = await supabase.auth.updateUser({ password: pw1 });
+    setPwBusy(false);
+    if (error) { setPwMsg({ ok: false, text: error.message || "Could not change the watchword." }); return; }
+    setPw1(""); setPw2(""); setPwMsg({ ok: true, text: "Watchword changed — use it next time you sign in." });
+  };
 
   return (
     <div className="parchment f-body min-h-screen text-stone-900">
@@ -1355,7 +1379,7 @@ function ProfilePage({ ctx }) {
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {canEdit && member && (
-                    <button onClick={() => { setEditName(member.name); setEditArmy(member.faction); setEditSurname(member.surname || ""); setEmailPrefs(member.emailPrefs || {}); setEditErr(""); setShowEdit(true); }}
+                    <button onClick={() => { setEditName(member.name); setEditArmy(member.faction); setEditSurname(member.surname || ""); setEmailPrefs(member.emailPrefs || {}); setEditErr(""); setPw1(""); setPw2(""); setPwMsg(null); setShowEdit(true); }}
                       className="rounded-sm border border-stone-300 bg-white/70 p-1.5 text-stone-500 hover:text-red-900" title="Edit profile & settings">
                       <Settings size={18} />
                     </button>
@@ -1620,6 +1644,19 @@ function ProfilePage({ ctx }) {
             )}
             {editErr && <p className="f-body text-sm font-bold text-red-800">{editErr}</p>}
             <B onClick={saveProfile} disabled={saving}><Save size={14} /> {saving ? "Saving…" : "Save"}</B>
+
+            {member.name === user.name && (
+              <div className="mt-1 border-t border-stone-300 pt-3">
+                <p className="f-disp mb-1 text-xs font-bold uppercase tracking-wide text-stone-600">Change watchword</p>
+                <div className="space-y-2">
+                  <Inp type="password" placeholder="New watchword" value={pw1} onChange={(e) => setPw1(e.target.value)} />
+                  <Inp type="password" placeholder="Confirm new watchword" value={pw2} onChange={(e) => setPw2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && changePw()} />
+                  {pwMsg && <p className={"f-body text-sm font-bold " + (pwMsg.ok ? "text-green-800" : "text-red-800")}>{pwMsg.text}</p>}
+                  <B kind="ghost" onClick={changePw} disabled={pwBusy || !pw1 || !pw2}><Shield size={14} /> {pwBusy ? "Changing…" : "Change watchword"}</B>
+                </div>
+                <p className="mt-1 text-[11px] italic text-stone-500">Changes only your own sign-in — a throwaway watchword is fine, this is a clubhouse lock. Forgotten it entirely? The Grand Marshal can reset it.</p>
+              </div>
+            )}
           </div>
         </Modal>
       )}

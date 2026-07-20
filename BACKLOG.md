@@ -26,6 +26,9 @@ lost between sessions. Newest ideas at the top of each section.
 
 ## Shipped
 
+- **v1.4.1** — members can change their own sign-in watchword from profile
+  Settings (`supabase.auth.updateUser`, no schema change). Forgotten-password
+  resets remain a Grand Marshal task from the Supabase dashboard.
 - **v1.4.0** — social round: comment threads on battle reports (any member;
   a guard trigger keeps the report itself editable only by filer/admin —
   `supabase/social.sql`); "Challenge" button on profiles creates a fixture and
